@@ -43,6 +43,10 @@ body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--ui);font-s
 .tag .sx.mode{color:var(--ok)}.tag .sx.warn{color:var(--bomb)}.tag .sx.bad{color:#ff6b5b}
 .tag.own.sel .nm{background:rgba(255,255,255,.2)}
 .tag.dead{opacity:.35}
+.tunRow{display:flex;align-items:center;gap:8px;margin:3px 0;font-size:12px}
+.tunRow span{flex:0 0 230px;text-transform:none;letter-spacing:.02em;opacity:.9}
+.tunRow input{flex:0 0 150px;accent-color:var(--t)}
+.tunRow b{font-family:var(--mono);font-size:11px;min-width:40px}
 #vig{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 45%,rgba(0,0,0,0) 58%,rgba(14,8,2,.34) 100%)}
 body.qlow #vig{display:none}
 #flashfx{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
@@ -435,6 +439,8 @@ body.nogl #nogl-note{display:block}
         <div class="seg" id="sgDiff"><button data-v="easy">Fácil</button><button data-v="normal" class="on">Normal</button><button data-v="hard">Difícil</button></div></div>
       <div class="grp"><div class="lbl">Formato</div>
         <div class="seg" id="sgFmt"><button data-v="6">Curto · 7 rounds</button><button data-v="12" class="on">Completo · 13 rounds</button></div></div>
+      <div class="grp"><div class="lbl">Balanceamento (avan&ccedil;ado) <button class="btn" id="tunReset" style="margin-left:8px;padding:2px 10px;font-size:11px">Redefinir</button></div>
+        <div id="tunRows"></div></div>
       <div class="grp"><div class="lbl">Sons próprios (opcional)</div>
         <label class="btn" style="display:inline-block;cursor:pointer">Escolher pasta de sons<input type="file" id="fSnd" webkitdirectory multiple accept="audio/*" style="display:none"></label>
         <span id="sndInfo" class="lbl" style="margin-left:8px;letter-spacing:.04em"></span>
@@ -1558,7 +1564,7 @@ function lowCover(a,b){ // mureta/caixa baixa entre a e b, bem perto de a: quem 
 }
 class Player{
   constructor(team,slot,name,aim,react,rating,est){
-    this.team=team;this.slot=slot;this.name=name;this.aim=aim;this.react=react;this.id=team.id+slot;this.rating=rating||0;this.est=!!est;this.prof=(typeof PROF!=='undefined'&&PROF[name==='huNter-'?'huNter_':name])||{o:.5,c:.5};
+    this.team=team;this.slot=slot;this.name=name;this.aim=aim;this.react=react*TUNE.react;this.id=team.id+slot;this.rating=rating||0;this.est=!!est;this.prof=(typeof PROF!=='undefined'&&PROF[name==='huNter-'?'huNter_':name])||{o:.5,c:.5};
     this.money=START_MONEY;this.k=0;this.d=0;this.dmg=0;this.mvp=0;this.hsK=0;this.ast=0;this.fa=0;this.clN=0;this.clW=0;this.rnds=0;this.kastN=0;this.mk=[0,0,0,0,0,0];
     this.resetEquipment();this.x=0;this.z=0;this.alive=false;this.hp=100;this.face=0;
   }
@@ -1818,16 +1824,16 @@ class Player{
     this.cd=w.iv*rnd(.9,1.2);this.sinceShot=0;this.burst++;this.muzzleT=.07;
     if(TAC.am){const am=this.amm();if(am&&am.m>0)am.m--;}
     if(TAC.awp&&w===WEAPONS.awp)this.awpShot=true;
-    let p=w.acc*this.aim*this.team.aimMul*(this.team.side==='CT'?TAC.ctm:TAC.tm)*Math.exp(-d/w.rng);
+    let p=w.acc*this.aim*this.team.aimMul*(this.team.side==='CT'?TAC.ctm:TAC.tm)*Math.exp(-d*TUNE.fall/w.rng);
     {const dh=hAt(this.x,this.z)-hAt(t.x,t.z);p*=1+clamp(dh*.025,-.07,.07);}
-    if(this.moving&&!this.walking)p*=w.mv;
+    if(this.moving&&!this.walking)p*=1-(1-w.mv)*TUNE.move;
     else if(TAC.cs16&&this.moving)p*=Math.min(1,w.mv*1.6);
     else{
       if(TAC.cs16&&(this.stillT||0)<.2)p*=w.mv+(1-w.mv)*Math.min(1,(this.stillT||0)/.2);
       if(this.holding)p*=1.1;
     }
     if(w!==WEAPONS.awp){
-      if(TAC.cs16)p*=this.burst<=1?1.12:Math.max(.36,1-.07*this.burst);
+      if(TAC.cs16)p*=this.burst<=1?1.18*TUNE.fs:Math.max(.36,1-.07*TUNE.spray*this.burst);
       else p*=Math.max(.42,1-.055*this.burst);
     }
     if(TAC.sp){
@@ -1855,7 +1861,7 @@ class Player{
       if(Math.hypot(e.x-this.x,e.z-this.z)<48)e.alert={x:this.x,z:this.z,t:1.2};
     }
     if(hit){
-      const head=Math.random()<w.hs*this.aim;
+      const head=Math.random()<w.hs*this.aim*TUNE.hs;
       t.hurt(viaDoor?w.dmg*.7:w.dmg,head&&!viaDoor,this,w);
     }
     // cadência: de longe, tap (1 tiro) ou rajada de 3; de perto, spray. Pausa restaura a precisão do primeiro tiro
@@ -1875,9 +1881,9 @@ class Player{
     if(!this.alive)return;
     const raw=dmg*(head?3.5:1);
     if(TAC.sp&&by&&by.team!==this.team){this.dmgBy=this.dmgBy||{};this.dmgBy[by.id]=(this.dmgBy[by.id]||0)+Math.min(raw,this.hp);}
-    let hpd=raw;
+    let hpd=raw*TUNE.dmg;
     if(this.armor>0&&(!head||this.helmet)){
-      hpd=raw*w.ar;this.armor=Math.max(0,this.armor-raw*(1-w.ar)*.5);
+      hpd=raw*w.ar*TUNE.dmg;this.armor=Math.max(0,this.armor-raw*(1-w.ar)*.5);
       if(this.armor<=0)this.helmet=false;
     }
     hpd=Math.min(hpd,this.hp);
@@ -2497,6 +2503,12 @@ function dgFor(side){const H=G.history;return H&&H.dg?H.dg[side]:[];}
 function dgDecay(){const H=G.history;if(!H||!H.dg)return;for(const k of ['CT','T']){H.dg[k].forEach(c=>c.w*=.88);H.dg[k]=H.dg[k].filter(c=>c.w>.15);}}
 const TAC={check:1,cover:1,strafe:1,jump:1,alt:1,gs:1,gf:0,ga:1,gx:1,gg:2,ctm:1.09,tm:.95,sw:1,exp:1,ec:1,bu:1,cl:1,tw:1,fp:1,rt:1,lk:1,pf:1,ph:1,kc:1,sd:1,lr:1,up:1,ag:1,sm:1,pe:1,rs:1,rr:1,ae:1,ft:1,wb:1,jt:1,dr:1,cs16:1,trd:1,awp:1,pa:1,pc:1,ld:1,rg:1,vid:1,fl:1,rot:1,pk:1,kn:1,an:1,ro:1,cw:1,vl:1,dy:1,rv:1,fv:1,us:1,ak:1,hp:1,kr:1,jd:1,ju:1,sm:1,cr:1,ctk:1,am:1,bk:1,rt:1,fs:1,fw:1,fh:1,op:1,rw:0,cn:1,hj:1,lu:1,hb:1,cad:1,pa:1,ph:1,cat:1,sp:1,ug:1,hf:1};
 if(IS_MIR){TAC.ctm=1.2;TAC.tm=1.04;} // Mirage: o spawn T fica bem mais perto do A que o do CT; compensa na mira para manter ~50/50
+/* Balanceamento ajustável pelo jogador (painel do menu): multiplicadores aplicados no combate. Valores em localStorage 'callout.tune'. */
+const TUNE=(()=>{const D={fs:1,spray:1,fall:1,move:1,dmg:1,hs:1,react:1,vol:1};
+  try{Object.assign(D,JSON.parse(localStorage.getItem('callout.tune')||'{}'));}catch(e){}
+  return D;})();
+const TUNE_DEF={fs:1,spray:1,fall:1,move:1,dmg:1,hs:1,react:1,vol:1};
+function tuneSave(){try{localStorage.setItem('callout.tune',JSON.stringify(TUNE));}catch(e){}}
 const DANGER=MC.danger;
 const LANES=MC.lanes;
 Object.assign(Player.prototype,{
@@ -6085,7 +6097,7 @@ const SFX=(()=>{
       const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return;
       ctx=new AC();
       comp=ctx.createDynamicsCompressor();comp.threshold.value=-14;comp.ratio.value=6;comp.attack.value=.003;comp.release.value=.2;
-      master=ctx.createGain();master.gain.value=muted?0:.8;master.connect(comp);comp.connect(ctx.destination);
+      master=ctx.createGain();master.gain.value=muted?0:.8*TUNE.vol;master.connect(comp);comp.connect(ctx.destination);
       noiseBuf=ctx.createBuffer(1,ctx.sampleRate,ctx.sampleRate);
       const d=noiseBuf.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
       // reverb por convolução (impulso gerado: ruído com decaimento)
@@ -6176,7 +6188,8 @@ const SFX=(()=>{
       }
       return n;
     },get muted(){return muted;},
-    setMuted(m){muted=m;if(master)master.gain.value=m?0:.8;try{localStorage.setItem('callout.mute',m?'1':'0');}catch(e){}},
+    setMuted(m){muted=m;if(master)master.gain.value=m?0:.8*TUNE.vol;try{localStorage.setItem('callout.mute',m?'1':'0');}catch(e){}},
+    setVol(v){if(master)master.gain.value=muted?0:.8*v;},
     shot(x,z,awp,wk){
       if(!ctx||muted)return;const now=performance.now();if(now-shotWin>1000){shotWin=now;shotCount=0;}if(++shotCount>16)return;
       if(playSample('shot_'+wk,x,z,.8))return;
@@ -6195,7 +6208,7 @@ const SFX=(()=>{
       if(!ctx||muted)return;if(playSample('hit',x,z,.5))return;const t=ctx.currentTime,o=out(x,z,.3,.4);
       if(armor){tn(o,t,.08,520,260,'triangle',.7);nz(o,t,.05,3000,2,'bandpass',.5);}else{nz(o,t,.06,900,1.2,'bandpass',.8);tn(o,t,.07,200,90,'sine',.6);}
     },
-    headshot(x,z){if(!ctx||muted)return;if(playSample('headshot',x,z,.6))return;const t=ctx.currentTime,o=out(x,z,.5,.5);tn(o,t,.18,2100,2100,'sine',.5);tn(o,t+.02,.15,3150,3150,'sine',.3);},
+    headshot(x,z){if(!ctx||muted)return;if(playSample('headshot',x,z,.6))return;const t=ctx.currentTime,o=out(x,z,.55,.5);nz(o,t,.006,3600,.9,'highpass',.8);tn(o,t,.16,2350,2350,'sine',.6);tn(o,t+.015,.12,3520,3520,'sine',.32);},
     die(x,z){if(!ctx||muted)return;if(playSample('die',x,z,.7))return;const t=ctx.currentTime,o=out(x,z,.55,.8);tn(o,t,.35,180,50,'sawtooth',.5);nz(o,t,.25,600,.8,'lowpass',.5,.004);},
     step(x,z,fast){
       if(!ctx||muted)return;const now=performance.now();if(now-stepWin>500){stepWin=now;stepCount=0;}if(++stepCount>8)return;
@@ -6592,6 +6605,32 @@ segInit('sgSide','side');
 segInit('sgRos','rosters');
 $('sgRos').querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>$('pickTeams').classList.toggle('off',cfg.rosters!=='real')));
 segInit('sgDiff','diff');segInit('sgFmt','half',v=>+v);
+/* painel de balanceamento: sliders multiplicadores do combate (TUNE no CORE) */
+(function(){
+  const ROWS=[
+    ['fs','Primeira bala (precisão)'],
+    ['spray','Rajada (queda de precisão)'],
+    ['fall','Queda de precisão por distância'],
+    ['move','Penalidade em movimento'],
+    ['dmg','Dano das armas'],
+    ['hs','Chance de headshot'],
+    ['react','Tempo de reação'],
+    ['vol','Volume geral']
+  ];
+  const box=$('tunRows');
+  function rows(){box.innerHTML='';
+    for(const [k,lbl] of ROWS){
+      const d=document.createElement('div');d.className='tunRow';
+      const sp=document.createElement('span');sp.textContent=lbl;
+      const r=document.createElement('input');r.type='range';r.min=k==='vol'?'0':'50';r.max='200';r.step='5';r.dataset.k=k;r.value=Math.round(TUNE[k]*100);
+      const v=document.createElement('b');v.textContent=r.value+'%';
+      r.oninput=()=>{TUNE[k]=+r.value/100;v.textContent=r.value+'%';tuneSave();if(k==='vol')SFX.setVol(TUNE.vol);};
+      d.append(sp,r,v);box.appendChild(d);
+    }
+  }
+  rows();
+  $('tunReset').onclick=()=>{SFX.click();Object.assign(TUNE,TUNE_DEF);tuneSave();rows();SFX.setVol(TUNE.vol);};
+})();
 $('bStart').onclick=()=>{
   SFX.init();SFX.click();
   $('menu').hidden=true;hideAll();$('hud').hidden=false;hudBuilt='';
