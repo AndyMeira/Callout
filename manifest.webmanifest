@@ -1,7 +1,7 @@
 {
-  "name": "Callout — IGL Dust2",
+  "name": "Callout — IGL",
   "short_name": "Callout",
-  "description": "Simulador tático de CS2: você dá as calls, os bots executam.",
+  "description": "Simulador tático de CS2 (Dust2 e Mirage): você dá as calls, os bots executam.",
   "start_url": "./",
   "scope": "./",
   "display": "fullscreen",
