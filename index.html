@@ -1003,7 +1003,7 @@ const HT=new Float32Array(N*N);
   }
 })();
 /* Mirage: as células de parede herdam a altura do piso mais próximo (sem isso o topo das paredes fica serrilhado) */
-if(IS_MIR)(function(){
+(function(){
   const dist=new Int16Array(N*N).fill(-1),val=new Float32Array(N*N),q=[];
   for(let i=0;i<N*N;i++)if(solid[i]!==1){dist[i]=0;val[i]=HT[i];q.push(i);}
   for(let h=0;h<q.length;h++){const k=q[h],c=k%N,r=(k/N)|0;
@@ -5060,7 +5060,7 @@ function makeFloor(){
   const tex=new THREE.CanvasTexture(cv);tex.anisotropy=8;
   return tex;
 }
-const floorGeo=new THREE.PlaneGeometry(N*CELL,N*CELL,N/2,N/2);
+const floorGeo=new THREE.PlaneGeometry(N*CELL,N*CELL,N,N); // 256×256 vértices: relevo liso (rampas sem terraços) em qualquer modo
 if(!NOGL){floorGeo.rotateX(-Math.PI/2);const pa=floorGeo.attributes.position;for(let i=0;i<pa.count;i++)pa.setY(i,hAtGround(pa.getX(i),pa.getZ(i)));pa.needsUpdate=true;floorGeo.computeVertexNormals();}
 const floor=new THREE.Mesh(floorGeo,new THREE.MeshStandardMaterial({map:makeFloor(),roughness:1,metalness:0}));
 if(NOGL)floor.rotation.x=-Math.PI/2;floor.receiveShadow=true;scene.add(floor);
@@ -5080,7 +5080,7 @@ ground.rotation.x=-Math.PI/2;ground.position.y=-.08;scene.add(ground);
   const im=new THREE.InstancedMesh(geo,mat,list.length);
   const m=new THREE.Matrix4(),col=new THREE.Color();
   list.forEach((a,i)=>{
-    const [c,r,v]=a,h=v===2?2.0:v===3?3.4:v===4?1.7:4.5;
+    const [c,r,v]=a,h=v===2?2.0:v===3?3.4:v===4?1.4:4.5;
     const hh=HT[r*N+c];const top=(v===2||v===3||v===4)?hh+h:h+hh,base=(v===2||v===3||v===4)?hh:-1;
     m.makeScale(1.002,top-base,1.002);m.setPosition(c2x(c),(top+base)/2,r2z(r));im.setMatrixAt(i,m);
     if(v===2){const q=hash(Math.floor(c/GS)+7,Math.floor(r/GS)+3);if(q<.62)col.setRGB(.52+q*.08,.37,.2);else if(q<.84)col.setRGB(.3,.36+q*.03,.2);else col.setRGB(.36,.4,.46);}
