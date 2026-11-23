@@ -1268,6 +1268,24 @@ function segCircle(ax,az,bx,bz,cx,cz,r){
   let t=l2?((cx-ax)*dx+(cz-az)*dz)/l2:0;t=clamp(t,0,1);
   return Math.hypot(ax+dx*t-cx,az+dz*t-cz)<r;
 }
+/* raio 3D (T3): distância do primeiro bloqueio de um segmento — parede alta bloqueia sempre,
+   mureta bloqueia passagem abaixo de 1.05 do chão local, terreno bloqueia o que passa sob o relevo.
+   Visão (canSee) e balas (shoot) usam a MESMA geometria: você vê o que sua bala alcança. */
+function rayBlock(ax,az,ay,bx,bz,by){
+  const dx=bx-ax,dz=bz-az,d=Math.hypot(dx,dz);
+  if(d<1e-4)return 1e9;
+  const ux=dx/d,uz=dz/d,slope=(by-ay)/d;
+  for(let q=.3;q<=d;q+=.3){ // passo < célula (0,6): nunca pula uma parede/mureta fina
+    const x=ax+ux*q,z=az+uz*q,y=ay+slope*q;
+    const c=Math.floor((x+HALF)/CELL),r=Math.floor((z+HALF)/CELL);
+    if(c<0||r<0||c>=N||r>=N)return q;
+    const sc=solid[r*N+c];
+    if(sc>0&&sc!==4)return q;
+    if(sc===4&&y-hAt(x,z)<1.4)return q;   // mureta na altura do peito: esconde quem está agachado
+    if(y<hAt(x,z))return q;
+  }
+  return 1e9;
+}
 
 /* ---- armas e economia ---- */
 const WEAPONS={
@@ -1643,7 +1661,13 @@ class Player{
     const dx=e.x-this.x,dz=e.z-this.z,d=Math.hypot(dx,dz);
     if(d>VIS_RANGE)return false;
     if(d>7&&Math.abs(angDiff(this.face,Math.atan2(dx,dz)))>FOV_HALF)return false;
-    if(!gridLOS(this.x,this.z,e.x,e.z))return false;
+    if(doorBlocks(this.x,this.z,e.x,e.z))return false;
+    /* T3: visão 3D — mesma geometria da bala. Mureta esconde quem está agachado atrás dela
+       (o olho dele passa por cima, o do inimigo não); terreno corta visão por cima do morro;
+       quem está em cima enxerga mais corpo de quem está embaixo. */
+    const eye=hAt(this.x,this.z)+(this.jy||0)+1.62-.52*(this.cr||0);
+    const hd=hAt(e.x,e.z)+(e.jy||0)+2.0*(1-.3*(e.cr||0))-.15;
+    if(rayBlock(this.x,this.z,eye,e.x,e.z,hd)<d)return false;
     const R=G.R;
     for(const s of R.smokes)if(s.r>1.2&&segCircle(this.x,this.z,e.x,e.z,s.x,s.z,s.r*.88))return false;
     return true;
@@ -1854,17 +1878,10 @@ class Player{
     const vy=(aimY-eS)/dd+errV;
     const D=Math.min(dd+40,130);
     const viaDoor=doorBlocks(this.x,this.z,this.x+rx*D,this.z+rz*D);
-    // 1) oclusão ao longo do raio: parede alta, mureta (tiro baixo), terreno
-    let wallT=1e9,impX=0,impZ=0;
-    for(let q=.7;q<D;q+=.7){
-      const x=this.x+rx*q,z=this.z+rz*q,y=eS+vy*q;
-      const c=Math.floor((x+HALF)/CELL),r=Math.floor((z+HALF)/CELL);
-      if(c<0||r<0||c>=N||r>=N){wallT=q;impX=x;impZ=z;break;}
-      const sc=solid[r*N+c];
-      if(sc>0&&sc!==4){wallT=q;impX=x;impZ=z;break;}
-      if(sc===4&&y-hAt(x,z)<1.05){wallT=q;impX=x;impZ=z;break;}
-      if(y<hAt(x,z)){wallT=q;impX=x;impZ=z;break;}
-    }
+    // 1) oclusão ao longo do raio (função compartilhada com a visão)
+    const wb=rayBlock(this.x,this.z,eS,this.x+rx*D,this.z+rz*D,eS+vy*D);
+    const wallT=wb<D?wb:1e9;
+    const impX=wb<D?this.x+rx*wb:0,impZ=wb<D?this.z+rz*wb:0;
     // 2) hitboxes de qualquer inimigo no caminho (colateral é possível)
     let hitT=1e9,hitP=null,hitHead=false;
     for(const e of this.team.enemy.players){
