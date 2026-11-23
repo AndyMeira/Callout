@@ -1824,45 +1824,68 @@ class Player{
     this.cd=w.iv*rnd(.9,1.2);this.sinceShot=0;this.burst++;this.muzzleT=.07;
     if(TAC.am){const am=this.amm();if(am&&am.m>0)am.m--;}
     if(TAC.awp&&w===WEAPONS.awp)this.awpShot=true;
-    let p=w.acc*this.aim*this.team.aimMul*(this.team.side==='CT'?TAC.ctm:TAC.tm)*Math.exp(-d*TUNE.fall/w.rng);
-    {const dh=hAt(this.x,this.z)-hAt(t.x,t.z);p*=1+clamp(dh*.025,-.07,.07);}
-    if(this.moving&&!this.walking)p*=1-(1-w.mv)*TUNE.move;
-    else if(TAC.cs16&&this.moving)p*=Math.min(1,w.mv*1.6);
-    else{
-      if(TAC.cs16&&(this.stillT||0)<.2)p*=w.mv+(1-w.mv)*Math.min(1,(this.stillT||0)/.2);
-      if(this.holding)p*=1.1;
+    /* ===== tiro geométrico (T2): a bala viaja em linha reta e acerta o que estiver no caminho.
+       Parede alta bloqueia de verdade; mureta bloqueia tiro baixo (agachado atrás fica protegido);
+       porta de madeira deixa passar com dano reduzido; cabeça é esfera no alto, corpo é cilindro;
+       spread é um cone (arma + habilidade + rajada + movimento). Sem dados: só geometria. */
+    const gS=hAt(this.x,this.z),eS=gS+(this.jy||0)+1.62-.52*(this.cr||0);
+    let ax=t.x,az=t.z;
+    if(t.moving&&!t.walking){ // antecipação de mira: bot bom lê o movimento do alvo
+      const lead=rnd(.05,.22)*(.4+this.aim*.9);
+      try{const sp=t.speed(t.curMode());ax+=Math.sin(t.moveAng)*sp*lead;az+=Math.cos(t.moveAng)*sp*lead;}catch(e){}
     }
-    if(w!==WEAPONS.awp){
-      if(TAC.cs16)p*=this.burst<=1?1.18*TUNE.fs:Math.max(.36,1-.07*TUNE.spray*this.burst);
-      else p*=Math.max(.42,1-.055*this.burst);
+    const tsT=1-.3*(t.cr||0),gT=hAt(t.x,t.z)+(t.jy||0);
+    const headAim=Math.random()<w.hs*this.aim*TUNE.hs;
+    const aimY=gT+(headAim?2.0:1.15)*tsT;
+    let cone=.006+(1-w.acc)*.052;
+    cone*=1.55-.75*this.aim;                                  // habilidade estreita o cone
+    cone/=(this.team.side==='CT'?TAC.ctm:TAC.tm);             // compensação de mapa (Mirage) mantida
+    if(w!==WEAPONS.awp)cone*=this.burst<=1?1/TUNE.fs:1+.11*TUNE.spray*(this.burst-1);
+    if(this.moving&&!this.walking)cone*=1+(1-w.mv)*1.8*TUNE.move;
+    else if(this.moving)cone*=1+(1-w.mv)*.3;
+    if(!this.moving&&(this.stillT||0)<.12)cone*=1.25;         // acabou de parar: contra-strafe quase fechou
+    if(this.crouching&&this.cr>.5)cone*=.8;
+    cone*=Math.sqrt(TUNE.fall);
+    if(w===WEAPONS.awp)cone*=this.moving||(this.stillT||0)<.25?3.2:.25; // AWP parado é cirúrgico, em movimento é inútil
+    const errA=rnd(-1,1)*cone,errV=rnd(-1,1)*cone;
+    const ddx=ax-this.x,ddz=az-this.z,dd=Math.hypot(ddx,ddz)||1e-4;
+    const ca=Math.cos(errA),sa=Math.sin(errA);
+    const rx=(ddx/dd)*ca-(ddz/dd)*sa,rz=(ddx/dd)*sa+(ddz/dd)*ca;
+    const vy=(aimY-eS)/dd+errV;
+    const D=Math.min(dd+40,130);
+    const viaDoor=doorBlocks(this.x,this.z,this.x+rx*D,this.z+rz*D);
+    // 1) oclusão ao longo do raio: parede alta, mureta (tiro baixo), terreno
+    let wallT=1e9,impX=0,impZ=0;
+    for(let q=.7;q<D;q+=.7){
+      const x=this.x+rx*q,z=this.z+rz*q,y=eS+vy*q;
+      const c=Math.floor((x+HALF)/CELL),r=Math.floor((z+HALF)/CELL);
+      if(c<0||r<0||c>=N||r>=N){wallT=q;impX=x;impZ=z;break;}
+      const sc=solid[r*N+c];
+      if(sc>0&&sc!==4){wallT=q;impX=x;impZ=z;break;}
+      if(sc===4&&y-hAt(x,z)<1.05){wallT=q;impX=x;impZ=z;break;}
+      if(y<hAt(x,z)){wallT=q;impX=x;impZ=z;break;}
     }
-    if(TAC.sp){
-      if(w===WEAPONS.awp){const a=this.prof.a===undefined?.6:this.prof.a;p*=1+(a-.6)*.2;if(d<10)p*=.72;if((this.stillT||0)<.3&&!this.holding)p*=.85;}
-      if(this.tradeT>0)p*=1.04;
-      p*=1+.015*this.team.iglK;
-      if(G.R.clock-(this.team.flashPop||-99)<2.5&&(this.roleKey==='entry'||this.roleKey==='support'))p*=1.05;
-      if(this.cluV>0){const c_=this.prof.c;if(c_>=.7&&this.holding)p*=1.08;else if(c_<.45)p*=.94;}
-      const fa_=Math.atan2(this.x-t.x,this.z-t.z);
-      if(Math.abs(angDiff(t.face,fa_))>1.3&&t.target!==this){p*=this.roleKey==='lurk'?1.16:1.08;G.lrc=G.lrc||{};G.lrc.flk=(G.lrc.flk||0)+1;}
+    // 2) hitboxes de qualquer inimigo no caminho (colateral é possível)
+    let hitT=1e9,hitP=null,hitHead=false;
+    for(const e of this.team.enemy.players){
+      if(!e.alive)continue;
+      const ts=1-.3*(e.cr||0),ge=hAt(e.x,e.z)+(e.jy||0);
+      const px=e.x-this.x,pz=e.z-this.z,along=px*rx+pz*rz;
+      if(along<0||along>Math.min(wallT,D))continue;
+      const perp=Math.abs(px*rz-pz*rx),yAt=eS+vy*along;
+      if(perp<.3&&Math.abs(yAt-(ge+2.0*ts))<.32){if(along<hitT){hitT=along;hitP=e;hitHead=true;}continue;}
+      if(perp<.45&&yAt>ge&&yAt<ge+1.72*ts){if(along<hitT){hitT=along;hitP=e;hitHead=false;}}
     }
-    if(t.moving&&!t.walking)p*=t.strafing?.8:.88;
-    if(this.csT>0)p*=1.07;
-    if(TAC.cr){if(this.crouching&&this.cr>.6)p*=1.1;if(t.cr>.6){p*=.93;if(lowCover(t,this))p*=.5;}}
-    {const R_=G.R;if(R_&&R_.clock<22)p*=1+(this.prof.o-.5)*.1;
-     if(this.team.alive().length===1&&this.team.enemy.alive().length>=2)p*=1+(this.prof.c-.5)*.16;}
-    const viaDoor=doorBlocks(this.x,this.z,t.x,t.z);if(viaDoor)p*=.42;
-    p=clamp(p,.02,.94);
-    const hit=Math.random()<p;
-    const bxx=t.x+(hit?0:rnd(-2.5,2.5)),bzz=t.z+(hit?0:rnd(-2.5,2.5));
+    const hit=!!hitP&&hitT<wallT;
+    const bxx=hit?this.x+rx*hitT:(impX||this.x+rx*D),bzz=hit?this.z+rz*hitT:(impZ||this.z+rz*D);
     R.tracers.push({ax:this.x,az:this.z,bx:bxx,bz:bzz,t:.07,side:this.team.side,by:this});
     G.fx.push({k:'shot',x:this.x,z:this.z,awp:w===WEAPONS.awp,wk:WK.get(w),side:this.team.side,fa:this.face,bx:bxx,bz:bzz,hit,by:this,rf:w!==WEAPONS.awp,sg:w===WEAPONS.nova||w===WEAPONS.xm1014});
     for(const e of this.team.enemy.players){
       if(!e.alive||e===t||e.alert||e.target)continue;
       if(Math.hypot(e.x-this.x,e.z-this.z)<48)e.alert={x:this.x,z:this.z,t:1.2};
     }
-    if(hit){
-      const head=Math.random()<w.hs*this.aim*TUNE.hs;
-      t.hurt(viaDoor?w.dmg*.7:w.dmg,head&&!viaDoor,this,w);
+    if(hitP){
+      hitP.hurt(viaDoor?w.dmg*.7:w.dmg,hitHead&&!viaDoor,this,w);
     }
     // cadência: de longe, tap (1 tiro) ou rajada de 3; de perto, spray. Pausa restaura a precisão do primeiro tiro
     if(TAC.cad&&w!==WEAPONS.awp&&w.iv<.3){
