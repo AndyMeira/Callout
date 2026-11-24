@@ -168,10 +168,11 @@ for (const mapName of ['dust2', 'mirage']) {
       }
       const navZ = nav.rast[k];
       if (!isNaN(navZ)) {
-        // célula ANDÁVEL: piso exato da malha; se a malha acertou um teto
-        // (andar de cima), cai para o piso do nav
+        // célula ANDÁVEL: piso exato da malha; só corrige quando a malha acertou
+        // um TETO de verdade (2+ andares acima) — plataformas/pisos empilhados
+        // (ex.: saída alta do spawn CT na Dust2) ficam com a altura REAL
         let z;
-        if (top > -Infinity && (top - navZ) * fit.escalaZ <= 0.6) z = top;
+        if (top > -Infinity && (top - navZ) * fit.escalaZ <= 1.5) z = top;
         else { z = navZ; if (top > -Infinity) correcoesTeto++; }
         h = fit.escalaZ * z + fit.offsetZ;
         hits++;
@@ -213,9 +214,10 @@ if (process.argv.includes('--patch')) {
     }
   }
   const loaderAntigo = /const bin=atob\(B64\),M=128,q=new Float32Array\(M\*M\);[\s\S]*?\}\)\(\);/;
-  const loaderNovo = `const bin=atob(B64);\n  for(let i=0;i<N*N;i++)HT[i]=bin.charCodeAt(i)/255*HMAX;\n})();`;
-  if (!loaderAntigo.test(out)) throw new Error('loader do HT nao encontrado para substituir');
-  out = out.replace(loaderAntigo, loaderNovo);
+  if (loaderAntigo.test(out)) {
+    const loaderNovo = `const bin=atob(B64);\n  for(let i=0;i<N*N;i++)HT[i]=bin.charCodeAt(i)/255*HMAX;\n})();`;
+    out = out.replace(loaderAntigo, loaderNovo);
+  } // senão: loader nativo 256 já aplicado — só troca as tabelas
   fs.writeFileSync(path.join(ROOT, 'index.html'), out);
   console.log('index.html atualizado: alturas da GEOMETRIA REAL do CS2 (malha AWMH).');
 }

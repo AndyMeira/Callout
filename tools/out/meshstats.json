@@ -3,20 +3,20 @@
     "nVerts": 122106,
     "nFaces": 239917,
     "coberturaMalha": "36.8%",
-    "correcoesTeto": 2822,
-    "hmaxQuantizado": 3.8894,
-    "hmaxBruto": 3.73,
-    "hmaxAntigo": 3.7394,
-    "celulasAcimaDoRelevo": 0
+    "correcoesTeto": 2625,
+    "hmaxQuantizado": 4.0394,
+    "hmaxBruto": 4.53,
+    "hmaxAntigo": 3.8894,
+    "celulasAcimaDoRelevo": 70
   },
   "mirage": {
     "nVerts": 44159,
     "nFaces": 73290,
     "coberturaMalha": "21.9%",
-    "correcoesTeto": 3761,
-    "hmaxQuantizado": 4.0675,
-    "hmaxBruto": 3.85,
-    "hmaxAntigo": 3.9175,
-    "celulasAcimaDoRelevo": 0
+    "correcoesTeto": 3651,
+    "hmaxQuantizado": 4.2175,
+    "hmaxBruto": 4.62,
+    "hmaxAntigo": 4.0675,
+    "celulasAcimaDoRelevo": 3
   }
 }
