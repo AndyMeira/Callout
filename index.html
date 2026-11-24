@@ -5282,7 +5282,12 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
       const fx=pos[c*3]-ax,fy=pos[c*3+1]-ay,fz=pos[c*3+2]-az;
       const nx=ey*fz-ez*fy,ny=ez*fx-ex*fz,nz=ex*fy-ey*fx;
       const L=Math.sqrt(nx*nx+ny*ny+nz*nz)||1;
-      (ny/L>.60?iF:iW).push(a,b,c); // face quase horizontal = piso/rampa
+      /* radar SÓ no chão onde ANDA (mesma altura do grid HT/bots):
+         teto de prédio, topo de caixa alta e plataforma acima do chão andável
+         viram pedra — senão a mesma "imagem de mapa" flutua em cima da outra */
+      const cx3=(ax+pos[b*3]+pos[c*3])/3,cy3=(ay+pos[b*3+1]+pos[c*3+1])/3,cz3=(az+pos[b*3+2]+pos[c*3+2])/3;
+      const hg=hAtGround(cx3,cz3);
+      (ny/L>.60&&Math.abs(cy3-hg)<1.3?iF:iW).push(a,b,c);
     }
     const gF=new THREE.BufferGeometry(),gW=new THREE.BufferGeometry();
     for(const gg of [gF,gW]){gg.setAttribute('position',new THREE.BufferAttribute(pos,3));gg.setAttribute('uv',new THREE.BufferAttribute(uvs,2));}
@@ -5316,15 +5321,29 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
        uma área maior que o radar) — só o interior [-76.8..76.8] renderiza */
     const clip=[new THREE.Plane(new THREE.Vector3(1,0,0),76.8),new THREE.Plane(new THREE.Vector3(-1,0,0),76.8),new THREE.Plane(new THREE.Vector3(0,0,1),76.8),new THREE.Plane(new THREE.Vector3(0,0,-1),76.8)];
     renderer.localClippingEnabled=true;
-    /* radar oficial como textura do PISO: as CORES reais do mapa */
+    /* radar oficial como textura do PISO — RECOLORIDO em tons de terra.
+       O radar do CS2 é um ESQUEMA (chão andável em cinza-oliva): estampado
+       assim, o mundo parece um mapa cinza. Mantemos o DESENHO (caixas,
+       faixas, limites de site — detalhe de onde se anda) mas a cor vira
+       terra/areia: chão escuro e quente, coerente com a pedra das paredes. */
     let tex=null;
     for(let tent=0;tent<3&&!tex;tent++){
       try{
         const rb=await fetch('radar-'+(IS_MIR?'mirage':'dust2')+'.png?v=143');
         if(!rb.ok)throw 0;
         const bmp=await createImageBitmap(await rb.blob());
-        tex=new THREE.Texture(bmp);
-        tex.needsUpdate=true;
+        const S=1024,cvT=document.createElement('canvas');cvT.width=S;cvT.height=S;
+        const cxT=cvT.getContext('2d');cxT.drawImage(bmp,0,0,S,S);
+        const imT=cxT.getImageData(0,0,S,S),dd=imT.data;
+        for(let i=0;i<dd.length;i+=4){
+          const L=(dd[i]*.3+dd[i+1]*.59+dd[i+2]*.11)/255;
+          dd[i]=Math.min(255,110+112*L);
+          dd[i+1]=Math.min(255,94+96*L);
+          dd[i+2]=Math.min(255,70+78*L);
+          dd[i+3]=255;
+        }
+        cxT.putImageData(imT,0,0);
+        tex=new THREE.CanvasTexture(cvT);
         tex.anisotropy=8;
       }catch(e){await new Promise(r2=>setTimeout(r2,400));}
     }
