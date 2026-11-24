@@ -5280,7 +5280,24 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
        reais de cada área), mas estampada em parede vira listra vertical e o
        mundo parece "um mapa colado por cima do outro". Então: piso = radar;
        parede/teto = pedra/reboco com sombreamento próprio. */
-    const iF=[],iW=[],iC=[];
+    const iF=[],iW=[],iC=[],iO=[];
+    /* distância (em células) até a área jogável — pra separar a "CASCA"
+       externa do mapa: a câmera orbita DE FORA, então os paredões da borda
+       ficam entre ela e a ação e só ocluem. Casca = >4 células de qualquer
+       área andável → grupo invisível. Paredes REAIS dos sites ficam. */
+    const K_SHELL=4;
+    const DIST=new Int16Array(N*N).fill(-1);
+    {
+      const dq=[];
+      for(let i=0;i<N*N;i++)if(solid[i]!==1){DIST[i]=0;dq.push(i);}
+      for(let h=0;h<dq.length;h++){
+        const k=dq[h],cc=k%N,rr=(k/N)|0,dv=DIST[k];
+        for(const nk of [cc>0?k-1:-1,cc<N-1?k+1:-1,rr>0?k-N:-1,rr<N-1?k+N:-1]){
+          if(nk<0||DIST[nk]>=0)continue;
+          DIST[nk]=dv+1;dq.push(nk);
+        }
+      }
+    }
     for(let f=0;f<nF;f++){
       const a=fc[f*3],b=fc[f*3+1],c=fc[f*3+2];
       const ax=pos[a*3],ay=pos[a*3+1],az=pos[a*3+2];
@@ -5295,8 +5312,12 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
       const cx3=(ax+pos[b*3]+pos[c*3])/3,cy3=(ay+pos[b*3+1]+pos[c*3+1])/3,cz3=(az+pos[b*3+2]+pos[c*3+2])/3;
       const hg=hAtGround(cx3,cz3);
       if(ny/L>.60&&Math.abs(cy3-hg)<1.3)iF.push(a,b,c);
-      else if(Math.abs(ny/L)>.55&&cy3>hg+2.4&&cy3<24)iC.push(a,b,c);
-      else iW.push(a,b,c);
+      else{
+        const dk=DIST[Math.max(0,Math.min(N-1,(cz3+HALF)/CELL|0))*N+Math.max(0,Math.min(N-1,(cx3+HALF)/CELL|0))];
+        if(dk>K_SHELL)iO.push(a,b,c);            // casca externa: invisível
+        else if(Math.abs(ny/L)>.55&&cy3>hg+2.4&&cy3<24)iC.push(a,b,c);
+        else iW.push(a,b,c);
+      }
     }
     /* normais com TODAS as faces (as cores de parede/teto são calculadas
        antes de separar os grupos) */
@@ -5305,10 +5326,10 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
     gAll.setIndex(new THREE.BufferAttribute(new Uint32Array(fc),1));
     gAll.computeVertexNormals();
     const nAll=gAll.attributes.normal.array;
-    const gF=new THREE.BufferGeometry(),gW=new THREE.BufferGeometry(),gC=new THREE.BufferGeometry();
-    for(const gg of [gF,gW,gC]){gg.setAttribute('position',new THREE.BufferAttribute(pos,3));gg.setAttribute('uv',new THREE.BufferAttribute(uvs,2));}
-    gF.setIndex(iF);gW.setIndex(iW);gC.setIndex(iC);
-    gF.computeVertexNormals();gW.computeVertexNormals();gC.computeVertexNormals();
+    const gF=new THREE.BufferGeometry(),gW=new THREE.BufferGeometry(),gC=new THREE.BufferGeometry(),gO=new THREE.BufferGeometry();
+    for(const gg of [gF,gW,gC,gO]){gg.setAttribute('position',new THREE.BufferAttribute(pos,3));gg.setAttribute('uv',new THREE.BufferAttribute(uvs,2));}
+    gF.setIndex(iF);gW.setIndex(iW);gC.setIndex(iC);gO.setIndex(iO);
+    gF.computeVertexNormals();gW.computeVertexNormals();gC.computeVertexNormals();gO.computeVertexNormals();
     /* piso: cor quase neutra (a cor vem do radar) com leve variação */
     {
       const cF=new Float32Array(nV*3);
@@ -5331,7 +5352,7 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
         cW[i*3+2]=Math.min(1,base[2]*f*j);
       }
       const atW=new THREE.BufferAttribute(cW,3);
-      gW.setAttribute('color',atW);gC.setAttribute('color',atW); // parede e teto compartilham
+      gW.setAttribute('color',atW);gC.setAttribute('color',atW);gO.setAttribute('color',atW); // parede/teto/casca compartilham
     }
     /* mapa de COBERTURA por célula (teste O(1), sem raycast por quadro):
        rasteriza a projeção de cada face do grupo teto/laje (todas já estão em
@@ -5396,12 +5417,16 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
     const mC=new THREE.Mesh(gC,new THREE.MeshStandardMaterial({vertexColors:true,roughness:.96,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip,transparent:true,opacity:1}));
     mF.receiveShadow=mW.receiveShadow=mC.receiveShadow=true;mF.castShadow=mW.castShadow=mC.castShadow=false; // sem auto-sombreamento (manchas pretas)
     mC.renderOrder=2; // teto desenha depois (fica atrás quando translúcido)
-    const m=new THREE.Group();m.add(mF);m.add(mW);m.add(mC);
+    /* casca externa: existe no grupo mas fica INVISÍVEL (a câmera orbita de
+       fora; paredões da borda só ocluem). REAL.shell permite religar fácil. */
+    const mOut=new THREE.Mesh(gO,new THREE.MeshStandardMaterial({vertexColors:true,roughness:.96,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip}));
+    mOut.visible=false;mOut.castShadow=mOut.receiveShadow=false;
+    const m=new THREE.Group();m.add(mF);m.add(mW);m.add(mC);m.add(mOut);
     sceneAddReal(m);
     REAL.floor.visible=false; // piso antigo fora: senao ele atravessa a malha por dentro
     for(const o of REAL.extras)o.visible=(o===REAL.ground);
     REAL.ground.position.y=-2.2; // desce o plano escuro: nao corta areas rebaixadas da malha
-    REAL.mesh=m;REAL.ceil=mC;
+    REAL.mesh=m;REAL.ceil=mC;REAL.shell=mOut;
   }catch(e){try{console.warn('geo: falhou',e&&e.message||e);}catch(_){}}
 })();
 function updateDoorMeshes(dt){ /* portas estáticas, como no jogo */ return;
