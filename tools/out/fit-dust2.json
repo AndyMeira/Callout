@@ -1,9 +1,9 @@
 {
-  "dx": -3,
-  "dy": 0,
-  "sx": 0.93,
-  "sy": 0.97,
-  "escalaZ": 0.008698,
-  "offsetZ": 1.876,
-  "R2": 0.8263
+  "modo": "radar",
+  "pos_x": -2476,
+  "pos_y": 3239,
+  "scale": 4.4,
+  "escalaZ": 0.009951,
+  "offsetZ": 1.73,
+  "paredesCasadas": 75.5
 }
