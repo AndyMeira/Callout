@@ -5350,7 +5350,13 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
         }
         if(rua&&dk<=K_SHELL)iF.push(a,b,c);
         else if(dk>K_SHELL)iO.push(a,b,c);
-        else if(flutua&&cy3<24)iC.push(a,b,c);
+        else if(flutua){
+          const vy=[ay,pos[b*3+1],pos[c*3+1]];
+          const spread=Math.max(...vy)-Math.min(...vy);
+          const dh=cy3-hAtGround(cx3,cz3);
+          if(spread<0.6&&dh>10.5)iC.push(a,b,c); // telhado plano muito alto (torres da A): fantasma
+          else iF.push(a,b,c); // chao andavel (liga spawn ate A, rampa): SOLTO
+        }
         else iW.push(a,b,c);
       } else {
         if(dk>K_SHELL)iO.push(a,b,c);            // casca externa: invisível
