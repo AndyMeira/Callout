@@ -5288,15 +5288,14 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
       const fx=pos[c*3]-ax,fy=pos[c*3+1]-ay,fz=pos[c*3+2]-az;
       const nx=ey*fz-ez*fy,ny=ez*fx-ex*fz,nz=ex*fy-ey*fx;
       const L=Math.sqrt(nx*nx+ny*ny+nz*nz)||1;
-      /* radar SÓ no chão onde ANDA (mesma altura do grid HT/bots):
-         teto de prédio, topo de caixa alta e plataforma acima do chão andável
-         viram pedra — senão a mesma "imagem de mapa" flutua em cima da outra.
-         TETOS de verdade (virados pra baixo, abaixo do skybox) vão num grupo
-         À PARTE: somem quando o combate rola em lugar coberto. */
+      /* radar SÓ no chão onde ANDA (mesma altura do grid HT/bots). TETO/LAJE =
+         face quase horizontal acima do chão andável → grupo FANTASMA (some em
+         combate coberto, dos DOIS lados: underside E topo de laje virado pra
+         cima — túneis da Dust2 não têm underside). Paredes ficam inteiras. */
       const cx3=(ax+pos[b*3]+pos[c*3])/3,cy3=(ay+pos[b*3+1]+pos[c*3+1])/3,cz3=(az+pos[b*3+2]+pos[c*3+2])/3;
       const hg=hAtGround(cx3,cz3);
       if(ny/L>.60&&Math.abs(cy3-hg)<1.3)iF.push(a,b,c);
-      else if(ny/L<-.55&&cy3<24)iC.push(a,b,c);
+      else if(Math.abs(ny/L)>.55&&cy3>hg+2.4&&cy3<24)iC.push(a,b,c);
       else iW.push(a,b,c);
     }
     /* normais com TODAS as faces (as cores de parede/teto são calculadas
@@ -5334,61 +5333,38 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
       const atW=new THREE.BufferAttribute(cW,3);
       gW.setAttribute('color',atW);gC.setAttribute('color',atW); // parede e teto compartilham
     }
-    /* mapas de cobertura por célula (teste O(1), sem raycast por quadro):
-       ceilGrid: tetos de verdade (undersides) → fade de opacity do grupo teto;
-       coverGrid: QUALQUER face quase horizontal acima do chão+2.4 e abaixo do
-       skybox (laje, teto inclinado, topo de laje andável) → aciona o corte
-       horizontal "teto fantasma". Paredes VERTICAIS não contam (senão todo
-       duelo colado num prédio abriria o prédio). Isso pega os casos em que a
-       malha oficial não tem underside — ex.: teto dos túneis da Dust2 é uma
-       laje virada pra cima. */
+    /* mapa de COBERTURA por célula (teste O(1), sem raycast por quadro):
+       rasteriza a projeção de cada face do grupo teto/laje (todas já estão em
+       iC) — não só o centróide: salas grandes ficam cobertas no meio
+       (Mercado/Túneis). Acima de 24 = skybox, ignorado. */
     {
-      const RG=new Float32Array(N*N).fill(-1),CG=new Float32Array(N*N).fill(-1);
-      /* rasteriza a PROJEÇÃO inteira de cada face quase horizontal (não só o
-         centróide): salas grandes ficam cobertas no meio (Mercado/Túneis) e a
-         cobertura não "vaza" por dilatação pro site aberto do lado */
-      const marca=(idx,rg)=>{
-        for(let f=0;f<idx.length;f+=3){
-          const ia=idx[f]*3,ib=idx[f+1]*3,ic=idx[f+2]*3;
-          const ax=pos[ia],ay=pos[ia+1],az=pos[ia+2];
-          const bx=pos[ib],by=pos[ib+1],bz=pos[ib+2];
-          const cx2=pos[ic],cy2=pos[ic+1],cz2=pos[ic+2];
-          const e1x=bx-ax,e1y=by-ay,e1z=bz-az,e2x=cx2-ax,e2y=cy2-ay,e2z=cz2-az;
-          const nly=e1z*e2x-e1x*e2z;
-          const nl=Math.sqrt((e1y*e2z-e1z*e2y)**2+nly**2+(e1x*e2y-e1y*e2x)**2)||1;
-          if(Math.abs(nly)/nl<.55)continue; // só lajes/tetos, não paredes verticais
-          const my=(ay+by+cy2)/3;
-          const cA=(ax+HALF)/CELL,cB=(bx+HALF)/CELL,cC=(cx2+HALF)/CELL;
-          const rA=(az+HALF)/CELL,rB=(bz+HALF)/CELL,rC=(cz2+HALF)/CELL;
-          const cLo=Math.max(0,Math.floor(Math.min(cA,cB,cC))),cHi=Math.min(N-1,Math.ceil(Math.max(cA,cB,cC)));
-          const rLo=Math.max(0,Math.floor(Math.min(rA,rB,rC))),rHi=Math.min(N-1,Math.ceil(Math.max(rA,rB,rC)));
-          for(let r=rLo;r<=rHi;r++)for(let c=cLo;c<=cHi;c++){
-            const px=(c+.5)*CELL-HALF,pz=(r+.5)*CELL-HALF;
-            const s1=(px-ax)*(bz-az)-(pz-az)*(bx-ax);
-            const s2=(px-bx)*(cz2-bz)-(pz-bz)*(cx2-bx);
-            const s3=(px-cx2)*(az-cz2)-(pz-cz2)*(ax-cx2);
-            if((s1<0||s2<0||s3<0)&&(s1>0||s2>0||s3>0))continue; // fora do triângulo
-            const k=r*N+c;
-            if(rg){if(my>RG[k])RG[k]=my;}
-            else if(my>hAtGround(px,pz)+2.4&&my<24&&(CG[k]<0||my<CG[k]))CG[k]=my;
-          }
+      const CG=new Float32Array(N*N).fill(-1);
+      for(let f=0;f<iC.length;f+=3){
+        const ia=iC[f]*3,ib=iC[f+1]*3,ic=iC[f+2]*3;
+        const ax=pos[ia],ay=pos[ia+1],az=pos[ia+2];
+        const bx=pos[ib],bz=pos[ib+2];
+        const cx2=pos[ic],cz2=pos[ic+2];
+        const my=(ay+pos[ib+1]+pos[ic+1])/3;
+        const cA=(ax+HALF)/CELL,cB=(bx+HALF)/CELL,cC=(cx2+HALF)/CELL;
+        const rA=(az+HALF)/CELL,rB=(bz+HALF)/CELL,rC=(cz2+HALF)/CELL;
+        const cLo=Math.max(0,Math.floor(Math.min(cA,cB,cC))),cHi=Math.min(N-1,Math.ceil(Math.max(cA,cB,cC)));
+        const rLo=Math.max(0,Math.floor(Math.min(rA,rB,rC))),rHi=Math.min(N-1,Math.ceil(Math.max(rA,rB,rC)));
+        for(let r=rLo;r<=rHi;r++)for(let c=cLo;c<=cHi;c++){
+          const px=(c+.5)*CELL-HALF,pz=(r+.5)*CELL-HALF;
+          const s1=(px-ax)*(bz-az)-(pz-az)*(bx-ax);
+          const s2=(px-bx)*(cz2-bz)-(pz-bz)*(cx2-bx);
+          const s3=(px-cx2)*(az-cz2)-(pz-cz2)*(ax-cx2);
+          if((s1<0||s2<0||s3<0)&&(s1>0||s2>0||s3>0))continue; // fora do triângulo
+          const k=r*N+c;
+          if(CG[k]<0||my<CG[k])CG[k]=my; // a laje mais BAIXA cobre primeiro
         }
-      };
-      marca(iC,true);  // undersides: ceilGrid (fade do grupo teto)
-      marca(iC,false); // undersides também são cobertura
-      marca(iW,false); // lajes/topos (ex.: túneis da Dust2): cobertura
-      REAL.ceilGrid=RG;REAL.coverGrid=CG;
+      }
+      REAL.coverGrid=CG;
     }
     /* apara o skybox/exteriores além do quadrado do jogo (o mesh oficial cobre
        uma área maior que o radar) — só o interior [-76.8..76.8] renderiza */
     const clip=[new THREE.Plane(new THREE.Vector3(1,0,0),76.8),new THREE.Plane(new THREE.Vector3(-1,0,0),76.8),new THREE.Plane(new THREE.Vector3(0,0,1),76.8),new THREE.Plane(new THREE.Vector3(0,0,-1),76.8)];
     renderer.localClippingEnabled=true;
-    /* corte horizontal "teto fantasma": animado por quadro (constant desce
-       pra altura do combate quando ele rola em lugar coberto). PAREDE e TETO
-       cortam; o CHÃO nunca (o piso some junto senão) */
-    const cut=new THREE.Plane(new THREE.Vector3(0,-1,0),999);
-    const clipCut=clip.concat([cut]);
-    REAL.cut=cut;
     /* radar oficial como textura do PISO — RECOLORIDO em tons de terra.
        O radar do CS2 é um ESQUEMA (chão andável em cinza-oliva): estampado
        assim, o mundo parece um mapa cinza. Mantemos o DESENHO (caixas,
@@ -5416,8 +5392,8 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
       }catch(e){await new Promise(r2=>setTimeout(r2,400));}
     }
     const mF=new THREE.Mesh(gF,new THREE.MeshStandardMaterial(Object.assign({vertexColors:true,roughness:.92,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip},tex?{map:tex}:{})));
-    const mW=new THREE.Mesh(gW,new THREE.MeshStandardMaterial({vertexColors:true,roughness:.96,metalness:0,side:THREE.DoubleSide,clippingPlanes:clipCut}));
-    const mC=new THREE.Mesh(gC,new THREE.MeshStandardMaterial({vertexColors:true,roughness:.96,metalness:0,side:THREE.DoubleSide,clippingPlanes:clipCut,transparent:true,opacity:1}));
+    const mW=new THREE.Mesh(gW,new THREE.MeshStandardMaterial({vertexColors:true,roughness:.96,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip}));
+    const mC=new THREE.Mesh(gC,new THREE.MeshStandardMaterial({vertexColors:true,roughness:.96,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip,transparent:true,opacity:1}));
     mF.receiveShadow=mW.receiveShadow=mC.receiveShadow=true;mF.castShadow=mW.castShadow=mC.castShadow=false; // sem auto-sombreamento (manchas pretas)
     mC.renderOrder=2; // teto desenha depois (fica atrás quando translúcido)
     const m=new THREE.Group();m.add(mF);m.add(mW);m.add(mC);
@@ -5965,7 +5941,10 @@ function updateCamera(dt){
   const d=cam.dist,sp=Math.sin(cam.pitch),cp=Math.cos(cam.pitch);
   const shx=cam.shake>0?rnd(-1,1)*cam.shake:0,shz=cam.shake>0?rnd(-1,1)*cam.shake:0;
   cam.shake=Math.max(0,cam.shake-dt*2.5);
-  let px=cam.tx+Math.sin(cam.az)*d*cp+shx,py=d*sp,pz=cam.tz+Math.cos(cam.az)*d*cp+shz,lx=cam.tx+shx,ly=hAtGround(cam.tx,cam.tz),lz=cam.tz+shz; // olha na altura do terreno (mundo real é alto)
+  // altura que a câmera olha: AMORTECIDA (o terreno agora sobe/desce de
+  // verdade; sem isso o olho "salta" quando o foco cruza uma rampa)
+  cam.ly=cam.ly===undefined?hAtGround(cam.tx,cam.tz):cam.ly+(hAtGround(cam.tx,cam.tz)-cam.ly)*Math.min(1,dt*3);
+  let px=cam.tx+Math.sin(cam.az)*d*cp+shx,py=d*sp,pz=cam.tz+Math.cos(cam.az)*d*cp+shz,lx=cam.tx+shx,ly=cam.ly,lz=cam.tz+shz;
   // kill cam: câmera desce e fica em 3ª pessoa atrás de quem deu o último abate do round
   const K=G.R&&G.R.killcam;if(K)K.t+=dt;
   const act=!!K&&K.t<K.dur;
@@ -5985,32 +5964,18 @@ function updateCamera(dt){
   }else kcamUI(0,null);
   camera.position.set(px,py,pz);
   camera.lookAt(lx,ly,lz);
-  /* TETO FANTASMA: combate em lugar coberto → (1) o grupo de tetos quase
-     some em opacity; (2) um plano de CORTE horizontal desce e abre tudo
-     acima de ~2,6 da altura do combate (lajes/tetos inclinados virados pra
-     cima também somem — ex.: túneis da Dust2). No aberto, tudo volta. */
-  if(REAL.ceil&&REAL.ceilGrid){
+  /* TETO FANTASMA: combate em lugar coberto → as lajes/tetos ficam
+     translúcidos (o mapa fica INTEIRO, nada é cortado) e a briga aparece
+     por dentro; no aberto voltam a ser sólidas. Teste O(1) por célula. */
+  if(REAL.ceil&&REAL.coverGrid){
     const rc_=Math.floor((cam.tx+HALF)/CELL),rr_=Math.floor((cam.tz+HALF)/CELL);
     let dentro=false;
-    if(rc_>=0&&rr_>=0&&rc_<N&&rr_<N){
-      const roof=REAL.ceilGrid[rr_*N+rc_];
-      dentro=roof>hAtGround(cam.tx,cam.tz)+2.4;
-    }
-    REAL.roofF=(REAL.roofF||0)+(dentro?1:-1)*Math.min(1,dt*3.2);
+    if(rc_>=0&&rr_>=0&&rc_<N&&rr_<N)dentro=REAL.coverGrid[rr_*N+rc_]>0;
+    REAL.roofF=(REAL.roofF||0)+(dentro?1:-1)*Math.min(1,dt*4);
     REAL.roofF=REAL.roofF<0?0:REAL.roofF>1?1:REAL.roofF;
     const op=1-REAL.roofF*.94;
     if(REAL.ceil.material.opacity!==op)REAL.ceil.material.opacity=op;
     REAL.ceil.visible=op>.05;
-  }
-  if(REAL.coverGrid&&REAL.cut){
-    const rc_=Math.floor((cam.tx+HALF)/CELL),rr_=Math.floor((cam.tz+HALF)/CELL);
-    let dentro=false;
-    if(rc_>=0&&rr_>=0&&rc_<N&&rr_<N)dentro=REAL.coverGrid[rr_*N+rc_]>0;
-    const alvo=dentro?hAtGround(cam.tx,cam.tz)+2.6:999;
-    if(REAL.cutH===undefined)REAL.cutH=999;
-    REAL.cutH+=(alvo-REAL.cutH)*Math.min(1,dt*(alvo<REAL.cutH?5:3)); // abre rápido, fecha suave
-    if(alvo>900&&REAL.cutH>900)REAL.cutH=999;
-    REAL.cut.constant=REAL.cutH;
   }
 }
 let kcEl=null;
