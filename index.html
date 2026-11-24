@@ -5251,7 +5251,7 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
     const nV=(comp[4]|comp[5]<<8|comp[6]<<16|comp[7]<<24)>>>0,nF=(comp[8]|comp[9]<<8|comp[10]<<16|comp[11]<<24)>>>0;
     const hd=new DataView(comp.buffer,comp.byteOffset,60);
     const x0=hd.getFloat64(12,true),x1=hd.getFloat64(20,true),y0=hd.getFloat64(28,true),y1=hd.getFloat64(36,true),z0=hd.getFloat64(44,true),z1=hd.getFloat64(52,true);
-    const qv=new Int16Array(raw.buffer,raw.byteOffset,nV*3);
+    const qv=new Uint16Array(raw.buffer,raw.byteOffset,nV*3); // 0..65535 SEM sinal (int16 estoura metade dos vertices)
     const fo=Math.ceil(nV*6/4)*4;
     const fc=new Uint32Array(raw.buffer,raw.byteOffset+fo,nF*3);
     /* mesma transformação do radar oficial + âncora Z por quantis (idênticas às
@@ -5269,7 +5269,11 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
     g.setAttribute('position',new THREE.BufferAttribute(pos,3));
     g.setIndex(new THREE.BufferAttribute(new Uint32Array(fc),1));
     g.computeVertexNormals();
-    const m=new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:IS_MIR?0xa89880:0x9c8f78,roughness:.94,metalness:0,side:THREE.DoubleSide}));
+    /* apara o skybox/exteriores além do quadrado do jogo (o mesh oficial cobre
+       uma área maior que o radar) — só o interior [-76.8..76.8] renderiza */
+    const clip=[new THREE.Plane(new THREE.Vector3(1,0,0),76.8),new THREE.Plane(new THREE.Vector3(-1,0,0),76.8),new THREE.Plane(new THREE.Vector3(0,0,1),76.8),new THREE.Plane(new THREE.Vector3(0,0,-1),76.8)];
+    renderer.localClippingEnabled=true;
+    const m=new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:IS_MIR?0xa89880:0x9c8f78,roughness:.94,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip}));
     m.receiveShadow=true;if(QUAL!=='low')m.castShadow=true;
     sceneAddReal(m);
     REAL.floor.visible=false; // piso antigo fora: senao ele atravessa a malha por dentro
