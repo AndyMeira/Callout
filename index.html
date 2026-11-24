@@ -5258,15 +5258,20 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
        das tabelas HT: bots e malha coincidem por construção) */
     const R_=IS_MIR?{px:-3230,py:1713,sc:5.0,e:.010489,o:3.700}:{px:-2476,py:3239,sc:4.4,e:.009951,o:1.730};
     const W=1024*R_.sc;
-    const pos=new Float32Array(nV*3);
+    const pos=new Float32Array(nV*3),uvs=new Float32Array(nV*2);
     for(let i=0;i<nV;i++){
       const wx=x0+qv[i*3]*(x1-x0)/65535,wy=y0+qv[i*3+1]*(y1-y0)/65535,wz=z0+qv[i*3+2]*(z1-z0)/65535;
       pos[i*3]=(wx-R_.px)/W*153.6-76.8;
       pos[i*3+1]=R_.e*wz+R_.o;
       pos[i*3+2]=(R_.py-wy)/W*153.6-76.8;
+      /* uv do radar oficial: a imagem 1024² É o retângulo do radar (mesma
+         transformação) — projeta as cores reais do mapa de cima pra baixo */
+      uvs[i*2]=(pos[i*3]+76.8)/153.6;
+      uvs[i*2+1]=(76.8-pos[i*3+2])/153.6;
     }
     const g=new THREE.BufferGeometry();
     g.setAttribute('position',new THREE.BufferAttribute(pos,3));
+    g.setAttribute('uv',new THREE.BufferAttribute(uvs,2));
     g.setIndex(new THREE.BufferAttribute(new Uint32Array(fc),1));
     g.computeVertexNormals();
     /* cor por face: piso claro, parede media, parte de baixo escura + leve
@@ -5274,7 +5279,7 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
     {
       const nor=g.attributes.normal.array;
       const colr=new Float32Array(nV*3);
-      const base=IS_MIR?[.66,.60,.50]:[.61,.56,.47];
+      const base=[1,1,1]; // neutro: a cor vem do radar oficial (textura); isto e' so sombreamento
       for(let i=0;i<nV;i++){
         const ny=nor[i*3+1];
         let f;
@@ -5291,7 +5296,19 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
        uma área maior que o radar) — só o interior [-76.8..76.8] renderiza */
     const clip=[new THREE.Plane(new THREE.Vector3(1,0,0),76.8),new THREE.Plane(new THREE.Vector3(-1,0,0),76.8),new THREE.Plane(new THREE.Vector3(0,0,1),76.8),new THREE.Plane(new THREE.Vector3(0,0,-1),76.8)];
     renderer.localClippingEnabled=true;
-    const m=new THREE.Mesh(g,new THREE.MeshStandardMaterial({vertexColors:true,roughness:.94,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip}));
+    /* radar oficial como textura: as CORES reais do mapa (baixa sob demanda) */
+    let tex=null;
+    for(let tent=0;tent<3&&!tex;tent++){
+      try{
+        const rb=await fetch('radar-'+(IS_MIR?'mirage':'dust2')+'.png?v=141');
+        if(!rb.ok)throw 0;
+        const bmp=await createImageBitmap(await rb.blob());
+        tex=new THREE.Texture(bmp);
+        tex.needsUpdate=true;
+        tex.anisotropy=8;
+      }catch(e){await new Promise(r2=>setTimeout(r2,400));}
+    }
+    const m=new THREE.Mesh(g,new THREE.MeshStandardMaterial(Object.assign({vertexColors:true,roughness:.94,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip},tex?{map:tex}:{})));
     m.receiveShadow=true;if(QUAL!=='low')m.castShadow=true;
     sceneAddReal(m);
     REAL.floor.visible=false; // piso antigo fora: senao ele atravessa a malha por dentro
