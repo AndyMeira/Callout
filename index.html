@@ -5269,34 +5269,54 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
       uvs[i*2]=(pos[i*3]+76.8)/153.6;
       uvs[i*2+1]=(76.8-pos[i*3+2])/153.6;
     }
-    const g=new THREE.BufferGeometry();
-    g.setAttribute('position',new THREE.BufferAttribute(pos,3));
-    g.setAttribute('uv',new THREE.BufferAttribute(uvs,2));
-    g.setIndex(new THREE.BufferAttribute(new Uint32Array(fc),1));
-    g.computeVertexNormals();
-    /* cor por face: piso claro, parede media, parte de baixo escura + leve
-       variancia por vertice (mata o chapado de uma cor so) */
+    /* ---- separa PISO de PAREDE/TETO ----
+       o radar é uma FOTO DO MAPA VISTA DE CIMA: no chão ela fica certa (cores
+       reais de cada área), mas estampada em parede vira listra vertical e o
+       mundo parece "um mapa colado por cima do outro". Então: piso = radar;
+       parede/teto = pedra/reboco com sombreamento próprio. */
+    const iF=[],iW=[];
+    for(let f=0;f<nF;f++){
+      const a=fc[f*3],b=fc[f*3+1],c=fc[f*3+2];
+      const ax=pos[a*3],ay=pos[a*3+1],az=pos[a*3+2];
+      const ex=pos[b*3]-ax,ey=pos[b*3+1]-ay,ez=pos[b*3+2]-az;
+      const fx=pos[c*3]-ax,fy=pos[c*3+1]-ay,fz=pos[c*3+2]-az;
+      const nx=ey*fz-ez*fy,ny=ez*fx-ex*fz,nz=ex*fy-ey*fx;
+      const L=Math.sqrt(nx*nx+ny*ny+nz*nz)||1;
+      (ny/L>.60?iF:iW).push(a,b,c); // face quase horizontal = piso/rampa
+    }
+    const gF=new THREE.BufferGeometry(),gW=new THREE.BufferGeometry();
+    for(const gg of [gF,gW]){gg.setAttribute('position',new THREE.BufferAttribute(pos,3));gg.setAttribute('uv',new THREE.BufferAttribute(uvs,2));}
+    gF.setIndex(iF);gW.setIndex(iW);
+    gF.computeVertexNormals();gW.computeVertexNormals();
+    /* piso: cor quase neutra (a cor vem do radar) com leve variação */
     {
-      const nor=g.attributes.normal.array;
-      const colr=new Float32Array(nV*3);
-      const base=[1,1,1]; // neutro: a cor vem do radar oficial (textura); isto e' so sombreamento
+      const cF=new Float32Array(nV*3);
+      for(let i=0;i<nV;i++){const j=.94+.06*Math.abs(Math.sin(i*12.9898));cF[i*3]=j;cF[i*3+1]=j;cF[i*3+2]=j;}
+      gF.setAttribute('color',new THREE.BufferAttribute(cF,3));
+    }
+    /* parede/teto: pedra/reboco na cor do mapa — mais claro em cima, escuro
+       embaixo, mancha sutil por vértice (mata o chapado de uma cor só) */
+    {
+      const cW=new Float32Array(nV*3);
+      const nW=gW.attributes.normal.array;
+      const base=IS_MIR?[.72,.66,.55]:[.70,.63,.51];
       for(let i=0;i<nV;i++){
-        const ny=nor[i*3+1];
-        let f;
-        if(ny>.6)f=1.12;              // pisos: claros
-        else if(ny<-.4)f=.42;         // tetos/undersides: bem escuros
-        else f=.78+Math.abs(ny)*.34;  // paredes e rampas
-        const hl=1+Math.max(0,Math.min(4,pos[i*3+1]))*.025; // alto = um pouco mais claro
-        const j=.96+((Math.sin(i*12.9898)*43758.5453)%1+1)*.035; // variancia sutil
-        colr[i*3]=Math.min(1,base[0]*f*hl*j);colr[i*3+1]=Math.min(1,base[1]*f*hl*j);colr[i*3+2]=Math.min(1,base[2]*f*hl*j);
+        const ny=nW[i*3+1],y=pos[i*3+1];
+        let f=.80+.30*Math.max(0,Math.min(1,(y+1)/9));
+        if(ny<-.35)f*=.55;                                   // tetos / parte de baixo
+        const j=.90+.10*Math.abs(Math.sin(i*45.233+1.7));    // mancha
+        const w=1+.03*Math.sin(i*7.11+2.3);                  // quente/frio
+        cW[i*3]=Math.min(1,base[0]*f*j*w);
+        cW[i*3+1]=Math.min(1,base[1]*f*j*(2-w));
+        cW[i*3+2]=Math.min(1,base[2]*f*j);
       }
-      g.setAttribute('color',new THREE.BufferAttribute(colr,3));
+      gW.setAttribute('color',new THREE.BufferAttribute(cW,3));
     }
     /* apara o skybox/exteriores além do quadrado do jogo (o mesh oficial cobre
        uma área maior que o radar) — só o interior [-76.8..76.8] renderiza */
     const clip=[new THREE.Plane(new THREE.Vector3(1,0,0),76.8),new THREE.Plane(new THREE.Vector3(-1,0,0),76.8),new THREE.Plane(new THREE.Vector3(0,0,1),76.8),new THREE.Plane(new THREE.Vector3(0,0,-1),76.8)];
     renderer.localClippingEnabled=true;
-    /* radar oficial como textura: as CORES reais do mapa (baixa sob demanda) */
+    /* radar oficial como textura do PISO: as CORES reais do mapa */
     let tex=null;
     for(let tent=0;tent<3&&!tex;tent++){
       try{
@@ -5308,11 +5328,14 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
         tex.anisotropy=8;
       }catch(e){await new Promise(r2=>setTimeout(r2,400));}
     }
-    const m=new THREE.Mesh(g,new THREE.MeshStandardMaterial(Object.assign({vertexColors:true,roughness:.94,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip},tex?{map:tex}:{})));
-    m.receiveShadow=true;m.castShadow=false; // sem auto-sombreamento: manchas pretas na malha grande; quem projeta sombra sao os jogadores
+    const mF=new THREE.Mesh(gF,new THREE.MeshStandardMaterial(Object.assign({vertexColors:true,roughness:.92,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip},tex?{map:tex}:{})));
+    const mW=new THREE.Mesh(gW,new THREE.MeshStandardMaterial({vertexColors:true,roughness:.96,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip}));
+    mF.receiveShadow=mW.receiveShadow=true;mF.castShadow=mW.castShadow=false; // sem auto-sombreamento (manchas pretas)
+    const m=new THREE.Group();m.add(mF);m.add(mW);
     sceneAddReal(m);
     REAL.floor.visible=false; // piso antigo fora: senao ele atravessa a malha por dentro
     for(const o of REAL.extras)o.visible=(o===REAL.ground);
+    REAL.ground.position.y=-2.2; // desce o plano escuro: nao corta areas rebaixadas da malha
     REAL.mesh=m;
   }catch(e){try{console.warn('geo: falhou',e&&e.message||e);}catch(_){}}
 })();
