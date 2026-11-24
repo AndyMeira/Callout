@@ -5300,7 +5300,7 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
     let tex=null;
     for(let tent=0;tent<3&&!tex;tent++){
       try{
-        const rb=await fetch('radar-'+(IS_MIR?'mirage':'dust2')+'.png?v=141');
+        const rb=await fetch('radar-'+(IS_MIR?'mirage':'dust2')+'.png?v=143');
         if(!rb.ok)throw 0;
         const bmp=await createImageBitmap(await rb.blob());
         tex=new THREE.Texture(bmp);
