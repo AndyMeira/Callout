@@ -1,0 +1,34 @@
+{
+  "dust2": {
+    "navVersion": 36,
+    "areas": 2242,
+    "calibracao": {
+      "R2": 0.8263,
+      "dx": -3,
+      "dy": 0,
+      "sx": 0.93,
+      "sy": 0.97,
+      "escalaZ": 0.008698,
+      "offsetZ": 1.876
+    },
+    "hmaxNovo": 3.7128,
+    "hmaxAntigo": 3.7394,
+    "coberturaNav": "39.7%"
+  },
+  "mirage": {
+    "navVersion": 36,
+    "areas": 2544,
+    "calibracao": {
+      "R2": 0.5701,
+      "dx": 1.5,
+      "dy": 3,
+      "sx": 1.05,
+      "sy": 0.89,
+      "escalaZ": 0.007932,
+      "offsetZ": 3.448
+    },
+    "hmaxNovo": 3.9175,
+    "hmaxAntigo": 3.9175,
+    "coberturaNav": "36.6%"
+  }
+}
