@@ -5333,18 +5333,32 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
       const fx=pos[c*3]-ax,fy=pos[c*3+1]-ay,fz=pos[c*3+2]-az;
       const nx=ey*fz-ez*fy,ny=ez*fx-ex*fz,nz=ex*fy-ey*fx;
       const L=Math.sqrt(nx*nx+ny*ny+nz*nz)||1;
-      /* radar SÓ no chão onde ANDA (mesma altura do grid HT/bots). TETO/LAJE =
-         face quase horizontal acima do chão andável → grupo FANTASMA (some em
-         combate coberto, dos DOIS lados: underside E topo de laje virado pra
-         cima — túneis da Dust2 não têm underside). Paredes ficam inteiras. */
+      /* radar SÓ no chão de RUA onde anda — teste MULTI-AMOSTRA (3 vértices +
+         centro): faces GRANDES têm centróide em qualquer lugar; o telhado sobre
+         o spawn CT passava como "chão" porque o centróide caía numa célula alta.
+         Rua = TODAS as amostras perto do chão andável local. Laje/telhado
+         (alguma amostra >2.4 acima) → grupo FANTASMA: pedra + some quando há
+         combate coberto embaixo. Paredes ficam inteiras. */
       const cx3=(ax+pos[b*3]+pos[c*3])/3,cy3=(ay+pos[b*3+1]+pos[c*3+1])/3,cz3=(az+pos[b*3+2]+pos[c*3+2])/3;
-      const hg=hAtGround(cx3,cz3);
-      if(ny/L>.60&&Math.abs(cy3-hg)<1.3)iF.push(a,b,c);
-      else{
-        const dk=DIST[Math.max(0,Math.min(N-1,(cz3+HALF)/CELL|0))*N+Math.max(0,Math.min(N-1,(cx3+HALF)/CELL|0))];
-        if(dk>K_SHELL)iO.push(a,b,c);            // casca externa: invisível
-        else if(Math.abs(ny/L)>.55&&cy3>hg+2.4&&cy3<24)iC.push(a,b,c);
+      const dk=DIST[Math.max(0,Math.min(N-1,(cz3+HALF)/CELL|0))*N+Math.max(0,Math.min(N-1,(cx3+HALF)/CELL|0))];
+      if(ny/L>.60){
+        let rua=true,flutua=false;
+        for(const q of [[ax,az,ay],[pos[b*3],pos[b*3+2],pos[b*3+1]],[pos[c*3],pos[c*3+2],pos[c*3+1]],[cx3,cz3,cy3]]){
+          const g=hAtGround(q[0],q[1]);
+          if(Math.abs(q[2]-g)>1.8)rua=false;
+          if(q[2]-g>2.4)flutua=true;
+        }
+        if(rua&&dk<=K_SHELL)iF.push(a,b,c);
+        else if(dk>K_SHELL)iO.push(a,b,c);
+        else if(flutua&&cy3<24)iC.push(a,b,c);
         else iW.push(a,b,c);
+      } else {
+        if(dk>K_SHELL)iO.push(a,b,c);            // casca externa: invisível
+        else{
+          const hg=hAtGround(cx3,cz3);
+          if(Math.abs(ny/L)>.55&&cy3>hg+2.4&&cy3<24)iC.push(a,b,c);
+          else iW.push(a,b,c);
+        }
       }
     }
     /* normais com TODAS as faces (as cores de parede/teto são calculadas
