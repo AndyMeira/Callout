@@ -5309,7 +5309,7 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
       }catch(e){await new Promise(r2=>setTimeout(r2,400));}
     }
     const m=new THREE.Mesh(g,new THREE.MeshStandardMaterial(Object.assign({vertexColors:true,roughness:.94,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip},tex?{map:tex}:{})));
-    m.receiveShadow=true;if(QUAL!=='low')m.castShadow=true;
+    m.receiveShadow=true;m.castShadow=false; // sem auto-sombreamento: manchas pretas na malha grande; quem projeta sombra sao os jogadores
     sceneAddReal(m);
     REAL.floor.visible=false; // piso antigo fora: senao ele atravessa a malha por dentro
     for(const o of REAL.extras)o.visible=(o===REAL.ground);
