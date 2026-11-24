@@ -5063,7 +5063,7 @@ const ground=new THREE.Mesh(new THREE.PlaneGeometry(900,900),new THREE.MeshBasic
 ground.rotation.x=-Math.PI/2;ground.position.y=-.08;scene.add(ground);
 /* T5: captura tudo que a construção estática do mundo adiciona à cena,
    para trocar pela malha real do CS2 quando ela carregar. */
-const REAL={extras:[],ground};
+const REAL={extras:[],ground,floor};
 const sceneAddReal=scene.add.bind(scene);
 scene.add=o=>{REAL.extras.push(o);return sceneAddReal(o);};
 (function walls(){
@@ -5269,9 +5269,10 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
     g.setAttribute('position',new THREE.BufferAttribute(pos,3));
     g.setIndex(new THREE.BufferAttribute(new Uint32Array(fc),1));
     g.computeVertexNormals();
-    const m=new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:IS_MIR?0xa89880:0x9c8f78,roughness:.94,metalness:0}));
+    const m=new THREE.Mesh(g,new THREE.MeshStandardMaterial({color:IS_MIR?0xa89880:0x9c8f78,roughness:.94,metalness:0,side:THREE.DoubleSide}));
     m.receiveShadow=true;if(QUAL!=='low')m.castShadow=true;
     sceneAddReal(m);
+    REAL.floor.visible=false; // piso antigo fora: senao ele atravessa a malha por dentro
     for(const o of REAL.extras)o.visible=(o===REAL.ground);
     REAL.mesh=m;
   }catch(e){try{console.warn('geo: falhou',e&&e.message||e);}catch(_){}}
