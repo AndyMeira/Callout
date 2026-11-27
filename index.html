@@ -5304,12 +5304,16 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
        quinas; 1 tile = 4x4 unidades (bloco de pedra 2x1) */
     const uvw=new Float32Array(nV*2);
     for(let i=0;i<nV;i++){uvw[i*2]=(pos[i*3]+pos[i*3+2])*.25;uvw[i*2+1]=pos[i*3+1]*.5;}
+    /* uv de ELEMENTO (topo de caixa/mureta/container): tiling por posição de
+       mundo, 1 tile = 1.2 u — cada caixa mostra a textura de caixa inteira */
+    const uve=new Float32Array(nV*2);
+    for(let i=0;i<nV;i++){uve[i*2]=pos[i*3]/1.2;uve[i*2+1]=pos[i*3+2]/1.2;}
     /* ---- separa PISO de PAREDE/TETO ----
        o radar é uma FOTO DO MAPA VISTA DE CIMA: no chão ela fica certa (cores
        reais de cada área), mas estampada em parede vira listra vertical e o
        mundo parece "um mapa colado por cima do outro". Então: piso = radar;
        parede/teto = pedra/reboco com sombreamento próprio. */
-    const iF=[],iW=[],iC=[],iO=[],iS=[];
+    const iF=[],iW=[],iC=[],iO=[],iS=[],iEW=[],iEM=[],iES=[];
     /* distância (em células) até a área jogável — pra separar a "CASCA"
        externa do mapa: a câmera orbita DE FORA, então os paredões da borda
        ficam entre ela e a ação e só ocluem. Casca = >4 células de qualquer
@@ -5349,7 +5353,27 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
           if(Math.abs(q[2]-g)>1.8)rua=false;
           if(q[2]-g>2.4)flutua=true;
         }
-        if(rua&&dk<=K_SHELL)iF.push(a,b,c);
+        /* ELEMENTO: topo de caixa (solid 2) / caixa alta-container (3) / mureta
+           baixa (4) — ganha TEXTURA PRÓPRIA (madeira/metal/pedra) em vez do
+           desenho do radar estampado, como os objetos do jogo. Aceita até 3u
+           de diferença grade↔malha (no mirage a grade registra as caixas em
+           outro nível) e olha também as células VIZINHAS (o centro da face
+           pode cair fora da pegada marcada); o carro do Long fica fora. */
+        const ec=Math.max(0,Math.min(N-1,(cx3+HALF)/CELL|0)),er=Math.max(0,Math.min(N-1,(cz3+HALF)/CELL|0));
+        let sv=solid[er*N+ec];
+        const dhf=cy3-hAtGround(cx3,cz3); // + = acima da altura da grade; caixa fica entre -3 e +1.4 (acima disso é teto/beirada)
+        if(sv!==2&&sv!==3&&sv!==4){
+          if(dhf>=-3&&dhf<=1.2&&Math.abs(dhf)>=.35&&!inCar(ec,er)){
+            let nv=0;
+            for(let dr=-2;dr<=2&&!nv;dr++)for(let dc=-2;dc<=2&&!nv;dc++){
+              const s2=solid[Math.max(0,Math.min(N-1,er+dr))*N+Math.max(0,Math.min(N-1,ec+dc))];
+              if(s2===2||s2===3||s2===4)nv=s2;
+            }
+            if(nv)sv=nv;
+          }
+        }
+        if(dk<=K_SHELL&&(sv===2||sv===3||sv===4)&&dhf>=-3&&dhf<=1.4&&!inCar(ec,er))(sv===2?iEW:sv===3?iEM:iES).push(a,b,c);
+        else if(rua&&dk<=K_SHELL)iF.push(a,b,c);
         else if(dk>K_SHELL)iO.push(a,b,c);
         else if(flutua){
           const vy=[ay,pos[b*3+1],pos[c*3+1]];
@@ -5376,11 +5400,15 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
     gAll.computeVertexNormals();
     const nAll=gAll.attributes.normal.array;
     const gF=new THREE.BufferGeometry(),gW=new THREE.BufferGeometry(),gC=new THREE.BufferGeometry(),gO=new THREE.BufferGeometry(),gS=new THREE.BufferGeometry();
-    const uvRadar=new THREE.BufferAttribute(uvs,2),uvWall=new THREE.BufferAttribute(uvw,2);
-    for(const gg of [gF,gW,gC,gO,gS])gg.setAttribute('position',new THREE.BufferAttribute(pos,3));
+    const gEW=new THREE.BufferGeometry(),gEM=new THREE.BufferGeometry(),gES=new THREE.BufferGeometry();
+    const uvRadar=new THREE.BufferAttribute(uvs,2),uvWall=new THREE.BufferAttribute(uvw,2),uvElem=new THREE.BufferAttribute(uve,2);
+    for(const gg of [gF,gW,gC,gO,gS,gEW,gEM,gES])gg.setAttribute('position',new THREE.BufferAttribute(pos,3));
     gF.setAttribute('uv',uvRadar);gW.setAttribute('uv',uvWall);gC.setAttribute('uv',uvWall);gO.setAttribute('uv',uvWall);gS.setAttribute('uv',uvRadar);
+    gEW.setAttribute('uv',uvElem);gEM.setAttribute('uv',uvElem);gES.setAttribute('uv',uvElem);
     gF.setIndex(iF);gW.setIndex(iW);gC.setIndex(iC);gO.setIndex(iO);gS.setIndex(iS);
+    gEW.setIndex(iEW);gEM.setIndex(iEM);gES.setIndex(iES);
     gF.computeVertexNormals();gW.computeVertexNormals();gC.computeVertexNormals();gO.computeVertexNormals();gS.computeVertexNormals();
+    gEW.computeVertexNormals();gEM.computeVertexNormals();gES.computeVertexNormals();
     /* piso: cor quase neutra (a cor vem do radar) com leve variação */
     {
       const cF=new Float32Array(nV*3);
@@ -5493,6 +5521,16 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
         // manchas de uso/desgaste no chão
         for(let k=0;k<240;k++){cxT.fillStyle='rgba(44,34,22,'+(0.02+0.06*Math.random()).toFixed(3)+')';cxT.beginPath();cxT.arc(Math.random()*S,Math.random()*S,4+Math.random()*20,0,7);cxT.fill();}
         for(let k=0;k<90;k++){cxT.fillStyle='rgba(230,216,180,'+(0.02+0.05*Math.random()).toFixed(3)+')';cxT.beginPath();cxT.arc(Math.random()*S,Math.random()*S,3+Math.random()*14,0,7);cxT.fill();}
+        /* TEXTURA do mapa: pedrinhas + grão de areia por cima do desenho do
+           radar — o chão deixa de ser "papel liso" e vira material de jogo */
+        for(let k=0;k<1100;k++){
+          const px=Math.random()*S,py=Math.random()*S,r2=.8+Math.random()*2.4,d=.08+.2*Math.random();
+          cxT.fillStyle='rgba('+(52+Math.random()*44|0)+','+(42+Math.random()*34|0)+','+(28+Math.random()*22|0)+','+d.toFixed(3)+')';
+          cxT.beginPath();cxT.arc(px,py,r2,0,7);cxT.fill();
+          cxT.fillStyle='rgba(255,242,208,'+(d*.5).toFixed(3)+')';
+          cxT.beginPath();cxT.arc(px-r2*.3,py-r2*.3,r2*.45,0,7);cxT.fill();
+        }
+        for(let k=0;k<2400;k++){cxT.fillStyle='rgba('+(Math.random()<.5?'70,56,36':'236,222,186')+','+(0.05+0.1*Math.random()).toFixed(3)+')';cxT.fillRect(Math.random()*S,Math.random()*S,1,1);}
         tex=new THREE.CanvasTexture(cvT);
         tex.anisotropy=8;
       }catch(e){await new Promise(r2=>setTimeout(r2,400));}
@@ -5504,6 +5542,52 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
        baixo aparece pelo "tapa-buraco" com o desenho do radar. */
     const mS=new THREE.Mesh(gS,mF.material);
     mS.receiveShadow=true;mS.castShadow=false;
+    /* ELEMENTOS: texturas próprias (procedurais, offline) — caixa de madeira
+       com ripas, cinta e pregos; container de metal ondulado enferrujado;
+       mureta de pedra com juntas e rachaduras. Tile de 1.2 u por caixa. */
+    const mkElem=(fn)=>{const c=document.createElement('canvas');c.width=c.height=128;fn(c.getContext('2d'),128);const t=new THREE.CanvasTexture(c);t.anisotropy=4;t.wrapS=t.wrapT=THREE.RepeatWrapping;return t;};
+    let sdE=12345;const rnE=()=>{sdE=(sdE*16807)%2147483647;return sdE/2147483647;};
+    const texWood=mkElem((x,S)=>{
+      x.fillStyle='#7c5a34';x.fillRect(0,0,S,S);
+      const np=5,ph=S/np;
+      for(let p=0;p<np;p++){
+        const y0=p*ph;
+        x.fillStyle='rgba(0,0,0,.28)';x.fillRect(0,y0+ph-2,S,2);          // fresta entre ripas
+        x.fillStyle='rgba(255,225,170,.10)';x.fillRect(0,y0,S,1);
+        for(let g=0;g<10;g++){                                            // veios da madeira
+          x.strokeStyle='rgba('+(rnE()<.5?'44,26,10':'176,132,84')+','+(.06+rnE()*.16).toFixed(3)+')';
+          x.lineWidth=.7;x.beginPath();const gy=y0+2+rnE()*(ph-6);x.moveTo(0,gy);
+          x.bezierCurveTo(S*.3,gy+(rnE()-.5)*3,S*.6,gy+(rnE()-.5)*3,S,gy+(rnE()-.5)*2);x.stroke();
+        }
+      }
+      /* cinta/moldura da caixa nas 4 bordas (cada tile = 1 caixa) */
+      x.fillStyle='#5e4224';x.fillRect(0,0,S,7);x.fillRect(0,S-7,S,7);x.fillRect(0,0,7,S);x.fillRect(S-7,0,7,S);
+      x.fillStyle='rgba(0,0,0,.35)';x.fillRect(0,6,S,2);x.fillRect(0,S-8,S,2);x.fillRect(6,0,2,S);x.fillRect(S-8,0,2,S);
+      for(const nv of [[3,3],[S-3,3],[3,S-3],[S-3,S-3]]){x.fillStyle='#2c1c08';x.beginPath();x.arc(nv[0],nv[1],1.6,0,7);x.fill();} // pregos
+      for(let k=0;k<26;k++){x.fillStyle='rgba(30,18,6,'+(.08+rnE()*.14).toFixed(3)+')';x.beginPath();x.arc(rnE()*S,rnE()*S,1+rnE()*3,0,7);x.fill();} // sujeira
+    });
+    const texMetal=mkElem((x,S)=>{
+      x.fillStyle='#5a6570';x.fillRect(0,0,S,S);
+      const nr=8,rh=S/nr;
+      for(let p=0;p<nr;p++){const y0=p*rh;                                  // ondulação do metal
+        x.fillStyle='rgba(255,255,255,.09)';x.fillRect(0,y0,rh*1.1,Math.max(1,rh*.28));
+        x.fillStyle='rgba(0,0,0,.30)';x.fillRect(0,y0+rh*.62,rh*1.1,Math.max(1,rh*.38));
+      }
+      for(let k=0;k<40;k++){x.fillStyle='rgba('+(118+(rnE()*40|0))+','+(58+(rnE()*26|0))+','+(24+(rnE()*16|0))+','+(.07+rnE()*.2).toFixed(3)+')';x.beginPath();x.arc(rnE()*S,rnE()*S,2+rnE()*5,0,7);x.fill();} // ferrugem
+      for(let k=0;k<24;k++){x.strokeStyle='rgba(210,220,228,'+(.05+rnE()*.12).toFixed(3)+')';x.lineWidth=.6;x.beginPath();const px=rnE()*S,py=rnE()*S;x.moveTo(px,py);x.lineTo(px+(rnE()-.5)*22,py+(rnE()-.5)*5);x.stroke();} // riscos
+      x.fillStyle='rgba(0,0,0,.25)';x.fillRect(0,0,S,3);x.fillRect(0,S-3,S,3); // dobras da borda
+    });
+    const texStone=mkElem((x,S)=>{
+      x.fillStyle='#9c8a6d';x.fillRect(0,0,S,S);
+      for(let k=0;k<2600;k++){const v=.5+rnE()*.5;x.fillStyle='rgba('+(70+v*120|0)+','+(60+v*100|0)+','+(42+v*80|0)+','+(.08+rnE()*.18).toFixed(3)+')';x.fillRect(rnE()*S|0,rnE()*S|0,1,1);} // grão da pedra
+      for(let k=0;k<9;k++){x.strokeStyle='rgba(40,30,16,'+(.14+rnE()*.2).toFixed(3)+')';x.lineWidth=.8;x.beginPath();let px=rnE()*S,py=rnE()*S;x.moveTo(px,py);for(let g=0;g<4;g++){px+=(rnE()-.5)*20;py+=(rnE()-.5)*20;x.lineTo(px,py);}x.stroke();} // rachaduras
+      for(let k=0;k<40;k++){x.fillStyle='rgba(255,240,200,'+(.04+rnE()*.08).toFixed(3)+')';x.beginPath();x.arc(rnE()*S,rnE()*S,1+rnE()*2.5,0,7);x.fill();}
+      x.strokeStyle='rgba(30,22,10,.35)';x.lineWidth=2;x.strokeRect(1,1,S-2,S-2); // junta da laje
+    });
+    const mEW=new THREE.Mesh(gEW,new THREE.MeshStandardMaterial({map:texWood,roughness:.85,metalness:0,side:THREE.DoubleSide}));
+    const mEM=new THREE.Mesh(gEM,new THREE.MeshStandardMaterial({map:texMetal,roughness:.6,metalness:.3,side:THREE.DoubleSide}));
+    const mES=new THREE.Mesh(gES,new THREE.MeshStandardMaterial({map:texStone,roughness:.95,metalness:0,side:THREE.DoubleSide}));
+    for(const me of [mEW,mEM,mES]){me.receiveShadow=true;me.castShadow=false;}
     const mC=new THREE.Mesh(gC,new THREE.MeshStandardMaterial({vertexColors:true,roughness:.96,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip,map:wallTex,transparent:true,opacity:1}));
     mF.receiveShadow=mW.receiveShadow=mC.receiveShadow=true;mF.castShadow=mW.castShadow=mC.castShadow=false; // sem auto-sombreamento (manchas pretas)
     mC.renderOrder=2; // teto desenha depois (fica atrás quando translúcido)
@@ -5538,7 +5622,7 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
     const mU=new THREE.Mesh(new THREE.PlaneGeometry(153.6,153.6),
       tex?new THREE.MeshBasicMaterial({map:tex}):new THREE.MeshBasicMaterial({color:0x6d5943}));
     mU.rotation.x=-Math.PI/2;mU.position.y=-2.05;mU.renderOrder=-1;
-    const m=new THREE.Group();m.add(mF);m.add(mW);m.add(mC);m.add(mOut);m.add(mU);m.add(mS);
+    const m=new THREE.Group();m.add(mF);m.add(mW);m.add(mC);m.add(mOut);m.add(mU);m.add(mS);m.add(mEW);m.add(mEM);m.add(mES);
     sceneAddReal(m);
     REAL.floor.visible=false; // piso antigo fora: senao ele atravessa a malha por dentro
     for(const o of REAL.extras)o.visible=(o===REAL.ground);
