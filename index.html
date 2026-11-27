@@ -1294,8 +1294,14 @@ function segCircle(ax,az,bx,bz,cx,cz,r){
    Visão (canSee) e balas (shoot) usam a MESMA geometria: você vê o que sua bala alcança. */
 function rayBlock(ax,az,ay,bx,bz,by){
   const dx=bx-ax,dz=bz-az,d=Math.hypot(dx,dz);
-  if(d<1e-4)return 1e9;
+  if(d<1e-4){
+    const c=Math.floor((ax+HALF)/CELL),r=Math.floor((az+HALF)/CELL);
+    const slab=(c>=0&&r>=0&&c<N&&r<N&&REAL.ctSlabGrid)?REAL.ctSlabGrid[r*N+c]:-1;
+    if(slab>0&&Math.min(ay,by)<slab+.18&&Math.max(ay,by)>slab-1.25)return .01;
+    return 1e9;
+  }
   const ux=dx/d,uz=dz/d,slope=(by-ay)/d;
+  let prevY=ay;
   for(let q=.3;q<=d;q+=.3){ // passo < célula (0,6): nunca pula uma parede/mureta fina
     const x=ax+ux*q,z=az+uz*q,y=ay+slope*q;
     const c=Math.floor((x+HALF)/CELL),r=Math.floor((z+HALF)/CELL);
@@ -1304,6 +1310,11 @@ function rayBlock(ax,az,ay,bx,bz,by){
     if(sc>0&&sc!==4)return q;
     if(sc===4&&y-hAt(x,z)<1.4)return q;   // mureta na altura do peito: esconde quem está agachado
     if(y<hAt(x,z))return q;
+    /* laje CT/Varanda: se o trecho deste passo cruza a espessura do andar
+       (fundo ~8.1, topo ~9.1), bloqueia nos dois sentidos. */
+    const slab=REAL.ctSlabGrid?REAL.ctSlabGrid[r*N+c]:-1;
+    if(slab>0&&Math.min(prevY,y)<slab+.18&&Math.max(prevY,y)>slab-1.25)return q;
+    prevY=y;
   }
   return 1e9;
 }
@@ -5314,6 +5325,10 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
        mundo parece "um mapa colado por cima do outro". Então: piso = radar;
        parede/teto = pedra/reboco com sombreamento próprio. */
     const iF=[],iW=[],iC=[],iO=[],iS=[],iEW=[],iEM=[],iES=[];
+    /* Laje real do CT/Varanda (Dust2): o mesmo plano que é teto do spawn
+       embaixo é PISO andável da Varanda em cima. Fica visível na visão limpa
+       e também vira oclusão vertical na simulação. */
+    const iCT=[];
     /* LATERAIS 3D que continuam visíveis na visão limpa: contenção de piso
        (degraus/plataformas) e laterais de caixa/mureta/container. Sem elas,
        caixa vira tampa flutuando e plataforma vira folha solta no ar. */
@@ -5351,6 +5366,12 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
       const cx3=(ax+pos[b*3]+pos[c*3])/3,cy3=(ay+pos[b*3+1]+pos[c*3+1])/3,cz3=(az+pos[b*3+2]+pos[c*3+2])/3;
       const dk=DIST[Math.max(0,Math.min(N-1,(cz3+HALF)/CELL|0))*N+Math.max(0,Math.min(N-1,(cx3+HALF)/CELL|0))];
       if(ny/L>.60){
+        /* CT/Varanda (Dust2): faces horizontais de 7.4..9.6m na pegada real
+           do andar de cima. O fundo (normal para baixo) vira parede/teto;
+           o topo (normal para cima) vira PISO visível, não laje escondida. */
+        const ctSlab=!IS_MIR&&cx3>=8&&cx3<=32&&cz3>=-60&&cz3<=-34&&cy3>=7.4&&cy3<=9.6;
+        if(ctSlab&&dk<=K_SHELL){iF.push(a,b,c);iCT.push(a,b,c);}
+        else {
         let rua=true,flutua=false;
         for(const q of [[ax,az,ay],[pos[b*3],pos[b*3+2],pos[b*3+1]],[pos[c*3],pos[c*3+2],pos[c*3+1]],[cx3,cz3,cy3]]){
           const g=hAtGround(q[0],q[1]);
@@ -5387,8 +5408,14 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
           else iS.push(a,b,c); // laje/patamar plano alto: só aparece com "Paredes: on"
         }
         else iW.push(a,b,c);
+        }
       } else {
-        if(dk>K_SHELL)iO.push(a,b,c);            // casca externa: invisível
+        /* face de BAIXO da mesma laje: continua sólida para visão/tiro e
+           aparece como teto quando "Paredes: on"; na visão limpa o piso de
+           cima já mostra a espessura do andar. */
+        const ctSlab=!IS_MIR&&cx3>=8&&cx3<=32&&cz3>=-60&&cz3<=-34&&cy3>=7.4&&cy3<=9.6;
+        if(ctSlab&&dk<=K_SHELL)iC.push(a,b,c);
+        else if(dk>K_SHELL)iO.push(a,b,c);            // casca externa: invisível
         else{
           const yTop=Math.max(ay,pos[b*3+1],pos[c*3+1]),yBot=Math.min(ay,pos[b*3+1],pos[c*3+1]);
           const hg=hAtGround(cx3,cz3);
@@ -5523,6 +5550,31 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
         }
       }
       REAL.coverGrid=CG;
+    }
+    /* GRADE DA LAJE CT/VARANDA: usada por rayBlock (visão e tiro) para
+       impedir atravessar o piso/teto nos dois sentidos. Só a laje real,
+       não todos os telhados do mapa. */
+    {
+      const SG=new Float32Array(N*N).fill(-1);
+      for(let f=0;f<iCT.length;f+=3){
+        const ia=iCT[f]*3,ib=iCT[f+1]*3,ic=iCT[f+2]*3;
+        const ax=pos[ia],ay=pos[ia+1],az=pos[ia+2];
+        const bx=pos[ib],bz=pos[ib+2],cx2=pos[ic],cz2=pos[ic+2];
+        const my=(ay+pos[ib+1]+pos[ic+1])/3;
+        const cA=(ax+HALF)/CELL,cB=(bx+HALF)/CELL,cC=(cx2+HALF)/CELL;
+        const rA=(az+HALF)/CELL,rB=(bz+HALF)/CELL,rC=(cz2+HALF)/CELL;
+        const cLo=Math.max(0,Math.floor(Math.min(cA,cB,cC))),cHi=Math.min(N-1,Math.ceil(Math.max(cA,cB,cC)));
+        const rLo=Math.max(0,Math.floor(Math.min(rA,rB,rC))),rHi=Math.min(N-1,Math.ceil(Math.max(rA,rB,rC)));
+        for(let r=rLo;r<=rHi;r++)for(let c=cLo;c<=cHi;c++){
+          const px=(c+.5)*CELL-HALF,pz=(r+.5)*CELL-HALF;
+          const s1=(px-ax)*(bz-az)-(pz-az)*(bx-ax);
+          const s2=(px-bx)*(cz2-bz)-(pz-bz)*(cx2-bx);
+          const s3=(px-cx2)*(az-cz2)-(pz-cz2)*(ax-cx2);
+          if((s1<0||s2<0||s3<0)&&(s1>0||s2>0||s3>0))continue;
+          const k=r*N+c;if(SG[k]<0||my<SG[k])SG[k]=my;
+        }
+      }
+      REAL.ctSlabGrid=SG;
     }
     /* apara o skybox/exteriores além do quadrado do jogo (o mesh oficial cobre
        uma área maior que o radar) — só o interior [-76.8..76.8] renderiza */
