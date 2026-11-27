@@ -361,6 +361,7 @@ body.nogl #nogl-note{display:block}
       <button class="btn" id="bMinCards" title="Minimizar o resumo de vida">Jogadores ▾</button>
       <button class="btn" id="bMinCalls" title="Compactar a barra de calls (uma linha só)">Calls ▾</button>
       <button class="btn" id="bQual" title="Reduz sombras e resolução se o jogo estiver pesado">Qualidade: alta</button>
+      <button class="btn" id="bWalls" title="Esconde as paredes e tetos do mapa: você vê só o chão e os elementos (jogadores, bomba, caixas). O jogo continua exatamente igual — os bots continuam respeitando as paredes.">Paredes: off</button>
     </div>
     <div id="kf"></div>
     <div id="banner"></div>
@@ -5529,6 +5530,10 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
     for(const o of REAL.extras)o.visible=(o===REAL.ground);
     REAL.ground.position.y=-2.2; // desce o plano escuro: nao corta areas rebaixadas da malha
     REAL.mesh=m;REAL.ceil=mC;REAL.shell=mOut;
+    /* VISÃO LIMPA (padrão do dono): paredes/tetos NÃO são desenhados — só
+       chão + elementos. A simulação não muda (visão/tiro usam a grade). */
+    try{REAL.walls=localStorage.getItem('callout.walls')==='1';}catch(e){REAL.walls=false;}
+    if(!REAL.walls){mW.visible=false;mC.visible=false;}
   }catch(e){try{console.warn('geo: falhou',e&&e.message||e);}catch(_){}}
 })();
 function updateDoorMeshes(dt){ /* portas estáticas, como no jogo */ return;
@@ -6109,7 +6114,7 @@ function updateCamera(dt){
     REAL.roofF=REAL.roofF<0?0:REAL.roofF>1?1:REAL.roofF;
     const op=1-REAL.roofF*.94;
     if(REAL.ceil.material.opacity!==op)REAL.ceil.material.opacity=op;
-    REAL.ceil.visible=op>.05;
+    REAL.ceil.visible=op>.05&&REAL.walls!==false;
   }
 }
 let kcEl=null;
@@ -7036,6 +7041,13 @@ $('bAuto').onclick=()=>{SFX.click();G.autoUtil=G.autoUtil===false;try{localStora
 const qLab=()=>{$('bQual').textContent='Qualidade: '+(QUAL==='low'?'baixa':'alta');};qLab();
 $('bQual').onclick=()=>{SFX.click();setQuality(QUAL==='low'?'high':'low',true);qLab();};
 if(NOGL)$('bQual').style.display='none';
+/* paredes/tetos: liga/desliga o desenho (o jogo em si nunca muda) */
+if(REAL.walls===undefined){try{REAL.walls=localStorage.getItem('callout.walls')==='1';}catch(e){REAL.walls=false;}}
+const wLab=()=>{$('bWalls').textContent='Paredes: '+(REAL.walls===false?'off':'on');};wLab();
+$('bWalls').onclick=()=>{SFX.click();REAL.walls=REAL.walls===false;
+  try{localStorage.setItem('callout.walls',REAL.walls?'1':'0');}catch(e){}
+  if(REAL.mesh){REAL.mesh.children[1].visible=REAL.walls;REAL.mesh.children[2].visible=REAL.walls;}
+  wLab();};
 let fpsN=0,fpsT=0,fpsChecks=0;
 $('fSnd').onchange=async e=>{const n=await SFX.loadFiles([...e.target.files]);$('sndInfo').textContent=n?n+' sons carregados':'nenhum arquivo reconhecido';};
 function toggleRadar(){const w=$('radarWrap');w.classList.toggle('big');$('bRadar').firstChild.textContent=w.classList.contains('big')?'Reduzir ':'Ampliar ';}
