@@ -5524,7 +5524,14 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
        fora; paredões da borda só ocluem). REAL.shell permite religar fácil. */
     const mOut=new THREE.Mesh(gO,new THREE.MeshStandardMaterial({vertexColors:true,roughness:.96,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip,map:wallTex}));
     mOut.visible=false;mOut.castShadow=mOut.receiveShadow=false;
-    const m=new THREE.Group();m.add(mF);m.add(mW);m.add(mC);m.add(mOut);
+    /* TAPA-BURACO do chão: onde não existe face de piso (dentro/embaixo das
+       paredes) aparecia o plano escuro do mundo — com as paredes escondidas
+       isso virava "paredes pretas". Um plano com o MESMO desenho do radar,
+       logo abaixo do piso mais baixo, preenche esses vãos. */
+    const mU=new THREE.Mesh(new THREE.PlaneGeometry(153.6,153.6),
+      tex?new THREE.MeshBasicMaterial({map:tex}):new THREE.MeshBasicMaterial({color:0x6d5943}));
+    mU.rotation.x=-Math.PI/2;mU.position.y=-2.05;mU.renderOrder=-1;
+    const m=new THREE.Group();m.add(mF);m.add(mW);m.add(mC);m.add(mOut);m.add(mU);
     sceneAddReal(m);
     REAL.floor.visible=false; // piso antigo fora: senao ele atravessa a malha por dentro
     for(const o of REAL.extras)o.visible=(o===REAL.ground);
