@@ -361,7 +361,7 @@ body.nogl #nogl-note{display:block}
       <button class="btn" id="bMinCards" title="Minimizar o resumo de vida">Jogadores ▾</button>
       <button class="btn" id="bMinCalls" title="Compactar a barra de calls (uma linha só)">Calls ▾</button>
       <button class="btn" id="bQual" title="Reduz sombras e resolução se o jogo estiver pesado">Qualidade: alta</button>
-      <button class="btn" id="bWalls" title="Esconde as paredes e tetos do mapa: você vê só o chão e os elementos (jogadores, bomba, caixas). O jogo continua exatamente igual — os bots continuam respeitando as paredes.">Paredes: off</button>
+      <button class="btn" id="bWalls" title="Off: visão limpa com chão, elementos, laterais 3D e rodapé baixo. On: paredes e tetos completos. O jogo continua idêntico — os bots respeitam as mesmas paredes.">Paredes: off</button>
     </div>
     <div id="kf"></div>
     <div id="banner"></div>
@@ -4996,7 +4996,7 @@ try{
   renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
 }catch(e){NOGL=true;renderer=makeStub();}
 if(NOGL)document.body.classList.add('nogl');
-let QUAL='high';try{QUAL=localStorage.getItem('callout.q')||'high';}catch(e){}
+let QUAL='high';try{QUAL=localStorage.getItem('callout.q')||(window.matchMedia&&matchMedia('(pointer:coarse)').matches?'low':'high');}catch(e){}
 function setQuality(q,save){
   QUAL=q;if(save){try{localStorage.setItem('callout.q',q);}catch(e){}}
   if(NOGL)return;
@@ -5009,8 +5009,8 @@ function setQuality(q,save){
 const IS_TOUCH=!!(window.matchMedia&&matchMedia('(pointer:coarse)').matches);
 const scene=new THREE.Scene();
 let motes=null;
-scene.background=new THREE.Color(0x090d13);
-scene.fog=new THREE.Fog(0x090d13,170,360);
+scene.background=new THREE.Color(0x1b1713);
+scene.fog=new THREE.Fog(0x1b1713,170,360);
 const camera=new THREE.PerspectiveCamera(42,1,2,700);
 scene.add(new THREE.HemisphereLight(0xdde6ff,0x7a5c3c,.52));
 const sun=new THREE.DirectionalLight(0xffd9b0,.88);
@@ -5314,6 +5314,10 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
        mundo parece "um mapa colado por cima do outro". Então: piso = radar;
        parede/teto = pedra/reboco com sombreamento próprio. */
     const iF=[],iW=[],iC=[],iO=[],iS=[],iEW=[],iEM=[],iES=[];
+    /* LATERAIS 3D que continuam visíveis na visão limpa: contenção de piso
+       (degraus/plataformas) e laterais de caixa/mureta/container. Sem elas,
+       caixa vira tampa flutuando e plataforma vira folha solta no ar. */
+    const iR=[],iSW2=[],iSW3=[],iSW4=[];
     /* distância (em células) até a área jogável — pra separar a "CASCA"
        externa do mapa: a câmera orbita DE FORA, então os paredões da borda
        ficam entre ela e a ação e só ocluem. Casca = >4 células de qualquer
@@ -5386,9 +5390,26 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
       } else {
         if(dk>K_SHELL)iO.push(a,b,c);            // casca externa: invisível
         else{
+          const yTop=Math.max(ay,pos[b*3+1],pos[c*3+1]),yBot=Math.min(ay,pos[b*3+1],pos[c*3+1]);
           const hg=hAtGround(cx3,cz3);
-          if(Math.abs(ny/L)>.55&&cy3>hg+2.4&&cy3<24)iC.push(a,b,c);
-          else iW.push(a,b,c);
+          const hN=[hAtGround(cx3-1.2,cz3),hAtGround(cx3+1.2,cz3),hAtGround(cx3,cz3-1.2),hAtGround(cx3,cz3+1.2)];
+          const hMin=Math.min(hg,...hN),hMax=Math.max(hg,...hN);
+          /* contenção: face vertical cujo TOPO acompanha o piso alto vizinho.
+             É a lateral da Varanda/Bomb/Pit/degrau, não uma parede que tapa
+             o combate — fica abaixo do piso onde o bot está. */
+          if(yTop<=hMax+.4&&yBot<=hMax+.2)iR.push(a,b,c);
+          else if(cy3>=hg-.8&&cy3<=hg+4.5){
+            /* lateral de elemento: usa o tipo de caixa marcado na grade ao
+               redor (2 madeira, 3 metal, 4 pedra). A parede alta continua
+               escondida; a caixa vira bloco 3D completo. */
+            const ec=Math.max(0,Math.min(N-1,(cx3+HALF)/CELL|0)),er=Math.max(0,Math.min(N-1,(cz3+HALF)/CELL|0));
+            let sv=0;
+            for(let dr=-2;dr<=2&&!sv;dr++)for(let dc=-2;dc<=2&&!sv;dc++){
+              const v=solid[Math.max(0,Math.min(N-1,er+dr))*N+Math.max(0,Math.min(N-1,ec+dc))];
+              if(v===2||v===3||v===4)sv=v;
+            }
+            if(sv===2)iSW2.push(a,b,c);else if(sv===3)iSW3.push(a,b,c);else if(sv===4)iSW4.push(a,b,c);else iW.push(a,b,c);
+          }else iW.push(a,b,c);
         }
       }
     }
@@ -5401,14 +5422,55 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
     const nAll=gAll.attributes.normal.array;
     const gF=new THREE.BufferGeometry(),gW=new THREE.BufferGeometry(),gC=new THREE.BufferGeometry(),gO=new THREE.BufferGeometry(),gS=new THREE.BufferGeometry();
     const gEW=new THREE.BufferGeometry(),gEM=new THREE.BufferGeometry(),gES=new THREE.BufferGeometry();
+    const gR=new THREE.BufferGeometry(),gSW2=new THREE.BufferGeometry(),gSW3=new THREE.BufferGeometry(),gSW4=new THREE.BufferGeometry();
+    /* geometria do RODAPÉ: as mesmas faces de parede, mas o shader corta
+       acima de 0.38u do chão local. Atributo ag = altura acima do chão. */
+    const gLS=new THREE.BufferGeometry(),agW=new Float32Array(nV);
+    for(let i=0;i<nV;i++)agW[i]=pos[i*3+1]-hAtGround(pos[i*3],pos[i*3+2]);
+    /* CLIP GEOMÉTRICO do rodapé: recorta os triângulos de parede em
+       ag<=0.38u. Evita depender de discard/interpolação e reduz o desenho
+       de 100k triângulos altos para apenas a faixa baixa. */
+    {
+      const lp=[],lu=[],li=[];
+      const clipTri=(aa,bb,cc)=>{
+        const ids=[aa,bb,cc],pts=[];
+        for(let e=0;e<3;e++){
+          const ia=ids[e],ib=ids[(e+1)%3],ya=agW[ia],yb=agW[ib];
+          if(ya<=.38)pts.push([pos[ia*3],pos[ia*3+1],pos[ia*3+2]]);
+          if((ya<=.38&&yb>.38)||(ya>.38&&yb<=.38)){
+            const t=(.38-ya)/(yb-ya);
+            pts.push([pos[ia*3]+(pos[ib*3]-pos[ia*3])*t,pos[ia*3+1]+(pos[ib*3+1]-pos[ia*3+1])*t,pos[ia*3+2]+(pos[ib*3+2]-pos[ia*3+2])*t]);
+          }
+        }
+        if(pts.length<3)return;
+        const base=lp.length/3;
+        for(const q of pts){lp.push(q[0],q[1],q[2]);lu.push((q[0]+q[2])*.25,q[1]*.5);}
+        for(let j=1;j<pts.length-1;j++)li.push(base,base+j,base+j+1);
+      };
+      for(let f=0;f<iW.length;f+=3){
+        const ia=iW[f],ib=iW[f+1],ic=iW[f+2];
+        const ys=[agW[ia],agW[ib],agW[ic]],mx=Math.max(...ys);
+        /* triângulo de parede com um vértice muito alto atravessa vários
+           andares: o recorte simples criaria um espigão. Só a faixa realmente
+           baixa vira rodapé; o andar de cima volta a ser parede escondida. */
+        if(mx>1.6)continue;
+        clipTri(ia,ib,ic);
+      }
+      gLS.setAttribute('position',new THREE.Float32BufferAttribute(lp,3));
+      gLS.setAttribute('uv',new THREE.Float32BufferAttribute(lu,2));
+      gLS.setIndex(li);gLS.computeVertexNormals();
+    }
     const uvRadar=new THREE.BufferAttribute(uvs,2),uvWall=new THREE.BufferAttribute(uvw,2),uvElem=new THREE.BufferAttribute(uve,2);
-    for(const gg of [gF,gW,gC,gO,gS,gEW,gEM,gES])gg.setAttribute('position',new THREE.BufferAttribute(pos,3));
+    for(const gg of [gF,gW,gC,gO,gS,gEW,gEM,gES,gR,gSW2,gSW3,gSW4])gg.setAttribute('position',new THREE.BufferAttribute(pos,3));
     gF.setAttribute('uv',uvRadar);gW.setAttribute('uv',uvWall);gC.setAttribute('uv',uvWall);gO.setAttribute('uv',uvWall);gS.setAttribute('uv',uvRadar);
     gEW.setAttribute('uv',uvElem);gEM.setAttribute('uv',uvElem);gES.setAttribute('uv',uvElem);
+    for(const gg of [gR,gSW2,gSW3,gSW4])gg.setAttribute('uv',uvWall);
     gF.setIndex(iF);gW.setIndex(iW);gC.setIndex(iC);gO.setIndex(iO);gS.setIndex(iS);
     gEW.setIndex(iEW);gEM.setIndex(iEM);gES.setIndex(iES);
+    gR.setIndex(iR);gSW2.setIndex(iSW2);gSW3.setIndex(iSW3);gSW4.setIndex(iSW4);
     gF.computeVertexNormals();gW.computeVertexNormals();gC.computeVertexNormals();gO.computeVertexNormals();gS.computeVertexNormals();
     gEW.computeVertexNormals();gEM.computeVertexNormals();gES.computeVertexNormals();
+    gR.computeVertexNormals();gSW2.computeVertexNormals();gSW3.computeVertexNormals();gSW4.computeVertexNormals();
     /* piso: cor quase neutra (a cor vem do radar) com leve variação */
     {
       const cF=new Float32Array(nV*3);
@@ -5432,6 +5494,7 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
       }
       const atW=new THREE.BufferAttribute(cW,3);
       gW.setAttribute('color',atW);gC.setAttribute('color',atW);gO.setAttribute('color',atW); // parede/teto/casca compartilham
+      gR.setAttribute('color',atW);gLS.setAttribute('color',new THREE.Float32BufferAttribute(new Float32Array(gLS.attributes.position.count*3).fill(.9),3));gSW2.setAttribute('color',atW);gSW3.setAttribute('color',atW);gSW4.setAttribute('color',atW);
     }
     /* mapa de COBERTURA por célula (teste O(1), sem raycast por quadro):
        rasteriza a projeção de cada face do grupo teto/laje (todas já estão em
@@ -5511,10 +5574,14 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
         const imT=cxT.getImageData(0,0,S,S),dd=imT.data;
         for(let i=0;i<dd.length;i+=4){
           const L=(dd[i]*.3+dd[i+1]*.59+dd[i+2]*.11)/255;
-          const nz=(Math.random()-.5)*16; // grão fino: mata o "pintado chapado"
-          dd[i]=Math.max(0,Math.min(255,110+112*L+nz));
-          dd[i+1]=Math.max(0,Math.min(255,94+96*L+nz));
-          dd[i+2]=Math.max(0,Math.min(255,70+78*L+nz*.8));
+          /* RADAR só como VARIAÇÃO DE TOM: as linhas de parede/sombra do
+             minimapa são comprimidas para não virar desenho colado no chão.
+             A base vira material de jogo (areia/pedra), não minimapa. */
+          const tom=.44+.19*Math.pow(L,.55);
+          const nz=(Math.random()-.5)*18; // grão fino: mata o "pintado chapado"
+          dd[i]=Math.max(0,Math.min(255,142*tom+112+nz));
+          dd[i+1]=Math.max(0,Math.min(255,123*tom+92+nz));
+          dd[i+2]=Math.max(0,Math.min(255,98*tom+68+nz*.8));
           dd[i+3]=255;
         }
         cxT.putImageData(imT,0,0);
@@ -5531,20 +5598,81 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
           cxT.beginPath();cxT.arc(px-r2*.3,py-r2*.3,r2*.45,0,7);cxT.fill();
         }
         for(let k=0;k<2400;k++){cxT.fillStyle='rgba('+(Math.random()<.5?'70,56,36':'236,222,186')+','+(0.05+0.1*Math.random()).toFixed(3)+')';cxT.fillRect(Math.random()*S,Math.random()*S,1,1);}
+        /* juntas de LAJOTA discretas (não é grade do minimapa): só em trechos
+           claros/construídos, quebras curtas e apagadas pelo grão */
+        cxT.strokeStyle='rgba(66,51,33,.10)';cxT.lineWidth=1;
+        for(let k=0;k<34;k++){
+          const px=Math.random()*S,py=Math.random()*S,Lx=16+Math.random()*45;
+          cxT.beginPath();cxT.moveTo(px,py);cxT.lineTo(px+Lx,py+(Math.random()-.5)*8);cxT.stroke();
+          cxT.beginPath();cxT.moveTo(px+Lx*.55,py-5);cxT.lineTo(px+Lx*.55,py+6);cxT.stroke();
+        }
         tex=new THREE.CanvasTexture(cvT);
         tex.anisotropy=8;
       }catch(e){await new Promise(r2=>setTimeout(r2,400));}
     }
+    /* PISO LOCAL DE RESERVA: fecha os vãos onde a malha real não tem face de
+       piso (pegada de parede, piso sob laje escondida), na ALTURA do terreno
+       local — nada de plano lá embaixo desenhando uma segunda imagem torta. */
+    const mkFloorPatch=()=>{
+      const UN=64,step=153.6/UN,mask=new Uint8Array(UN*UN),maskG=new Uint8Array(UN*UN);
+      const ci=x=>Math.max(0,Math.min(UN-1,Math.floor((x+76.8)/step)));
+      const ri=z=>Math.max(0,Math.min(UN-1,Math.floor((z+76.8)/step)));
+      const dentro=(px,pz,ax,az,bx,bz,cx,cz)=>{
+        const s1=(px-ax)*(bz-az)-(pz-az)*(bx-ax),s2=(px-bx)*(cz-bz)-(pz-bz)*(cx-bx),s3=(px-cx)*(az-cz)-(pz-cz)*(ax-cx);
+        return !((s1<0||s2<0||s3<0)&&(s1>0||s2>0||s3>0));
+      };
+      for(let f=0;f<iF.length;f+=3){
+        const a=iF[f]*3,b=iF[f+1]*3,c=iF[f+2]*3;
+        const ax=pos[a],az=pos[a+2],bx=pos[b],bz=pos[b+2],cx=pos[c],cz=pos[c+2];
+        for(let r=ri(Math.min(az,bz,cz));r<=ri(Math.max(az,bz,cz));r++)for(let cc=ci(Math.min(ax,bx,cx));cc<=ci(Math.max(ax,bx,cx));cc++){
+          const px=(cc+.5)*step-76.8,pz=(r+.5)*step-76.8;
+          if(dentro(px,pz,ax,az,bx,bz,cx,cz))mask[r*UN+cc]=1;
+        }
+      }
+      /* também conta os topos de elemento: sem isso o piso local cobriria
+         a caixa por cima (mesma altura), escondendo sua textura */
+      for(const lst of [iEW,iEM,iES])for(let f=0;f<lst.length;f+=3){
+        const a=lst[f]*3,b=lst[f+1]*3,c=lst[f+2]*3;
+        const ax=pos[a],az=pos[a+2],bx=pos[b],bz=pos[b+2],cx=pos[c],cz=pos[c+2];
+        for(let r=ri(Math.min(az,bz,cz));r<=ri(Math.max(az,bz,cz));r++)for(let cc=ci(Math.min(ax,bx,cx));cc<=ci(Math.max(ax,bx,cx));cc++){
+          const px=(cc+.5)*step-76.8,pz=(r+.5)*step-76.8;
+          if(dentro(px,pz,ax,az,bx,bz,cx,cz))maskG[r*UN+cc]=1;
+        }
+      }
+      const vp=[],vu=[],vi=[];
+      for(let r=0;r<UN;r++)for(let c=0;c<UN;c++){
+        if(mask[r*UN+c]||maskG[r*UN+c])continue;
+        const px=(c+.5)*step-76.8,pz=(r+.5)*step-76.8;
+        /* usa DIST do loader (parede = 1, área andável = 0): até 2 células
+           de uma parede/área real. Exterior puro (DIST alto) fica de fora. */
+        if(DIST[Math.max(0,Math.min(N-1,Math.floor((pz+HALF)/CELL)))*N+Math.max(0,Math.min(N-1,Math.floor((px+HALF)/CELL)))]>2)continue;
+        const x0=c*step-76.8,x1=(c+1)*step-76.8,z0=r*step-76.8,z1=(r+1)*step-76.8;
+        const pts=[[x0,z0],[x1,z0],[x1,z1],[x0,z1]],base=vp.length/3;
+        for(const [x,z] of pts){
+          vp.push(x,hAtGround(x,z)-.06,z);
+          vu.push((x+76.8)/153.6,(76.8-z)/153.6);
+        }
+        vi.push(base,base+2,base+1,base,base+3,base+2);
+      }
+      const g=new THREE.BufferGeometry();
+      g.setAttribute('position',new THREE.Float32BufferAttribute(vp,3));
+      g.setAttribute('uv',new THREE.Float32BufferAttribute(vu,2));
+      g.setIndex(vi);g.computeVertexNormals();
+      return new THREE.Mesh(g,mF.material);
+    };
     const mF=new THREE.Mesh(gF,new THREE.MeshStandardMaterial(Object.assign({vertexColors:true,roughness:.92,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip},tex?{map:tex}:{})));
     const mW=new THREE.Mesh(gW,new THREE.MeshStandardMaterial({vertexColors:true,roughness:.96,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip,map:wallTex,transparent:true}));
     /* lajes/patamares planos altos (telhados): com "Paredes: on" aparecem como
-       piso (comportamento antigo); na visão limpa ficam escondidos e o piso de
-       baixo aparece pelo "tapa-buraco" com o desenho do radar. */
+       piso (comportamento antigo); na visão limpa ficam escondidos e o piso
+       local de reserva mantém o desenho do mapa na altura certa. */
     const mS=new THREE.Mesh(gS,mF.material);
     mS.receiveShadow=true;mS.castShadow=false;
     /* ELEMENTOS: texturas próprias (procedurais, offline) — caixa de madeira
        com ripas, cinta e pregos; container de metal ondulado enferrujado;
        mureta de pedra com juntas e rachaduras. Tile de 1.2 u por caixa. */
+    const uvElemV=new Float32Array(nV*2);
+    for(let i=0;i<nV;i++){uvElemV[i*2]=pos[i*3]/1.2;uvElemV[i*2+1]=pos[i*3+1]/2.0;}
+    const uvElemVAt=new THREE.BufferAttribute(uvElemV,2);
     const mkElem=(fn)=>{const c=document.createElement('canvas');c.width=c.height=128;fn(c.getContext('2d'),128);const t=new THREE.CanvasTexture(c);t.anisotropy=4;t.wrapS=t.wrapT=THREE.RepeatWrapping;return t;};
     let sdE=12345;const rnE=()=>{sdE=(sdE*16807)%2147483647;return sdE/2147483647;};
     const texWood=mkElem((x,S)=>{
@@ -5614,24 +5742,53 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
        fora; paredões da borda só ocluem). REAL.shell permite religar fácil. */
     const mOut=new THREE.Mesh(gO,new THREE.MeshStandardMaterial({vertexColors:true,roughness:.96,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip,map:wallTex}));
     mOut.visible=false;mOut.castShadow=mOut.receiveShadow=false;
-    /* TAPA-BURACO do chão: onde não existe face de piso (a pegada das paredes,
-       ou sob lajes escondidas) aparecia o plano escuro do mundo. Um plano com
-       o MESMO desenho do radar, logo abaixo do piso mais baixo, preenche esses
-       vãos. Plano RETO (não segue a altura): é ele que cobre também a borda do
-       mapa na tela; um piso que subisse nas beiradas deixava o vazio aparecer. */
+
+    /* LATERAIS 3D visíveis na visão limpa */
+    const mR=new THREE.Mesh(gR,mF.material); // contenção de piso: material do chão
+    /* Sombra de contato no rodapé: o material de parede escurece o pé da
+       caixa; nas laterais usamos textura limpa (sem vertexColors) para a
+       caixa ficar marrom/cinza de verdade, não um bloco preto. */
+    const mSW2=new THREE.Mesh(gSW2,new THREE.MeshStandardMaterial({roughness:.85,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip,map:texWood}));
+    const mSW3=new THREE.Mesh(gSW3,new THREE.MeshStandardMaterial({roughness:.6,metalness:.3,side:THREE.DoubleSide,clippingPlanes:clip,map:texMetal}));
+    const mSW4=new THREE.Mesh(gSW4,new THREE.MeshStandardMaterial({roughness:.95,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip,map:texStone}));
+    gSW2.setAttribute('uv',uvElemVAt);gSW3.setAttribute('uv',uvElemVAt);gSW4.setAttribute('uv',uvElemVAt);
+    for(const q of [mR,mSW2,mSW3,mSW4]){q.receiveShadow=true;q.castShadow=false;}
+
+    /* RODAPÉ BAIXO (0.38u): mantém a leitura de corredores/esquinas sem
+       esconder o corpo dos bots. O shader descarta tudo acima do chão+0.38;
+       some sozinho quando "Paredes: on" (a parede inteira assume). */
+    const matLS=new THREE.MeshStandardMaterial({vertexColors:true,roughness:.98,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip,map:wallTex});
+    const mLow=new THREE.Mesh(gLS,matLS);mLow.receiveShadow=true;mLow.castShadow=false;
+
+    /* antigo plano de fundo em y=-2.05: fora (causava imagem duplicada) */
     const mU=new THREE.Mesh(new THREE.PlaneGeometry(153.6,153.6),
       tex?new THREE.MeshBasicMaterial({map:tex}):new THREE.MeshBasicMaterial({color:0x6d5943}));
-    mU.rotation.x=-Math.PI/2;mU.position.y=-2.05;mU.renderOrder=-1;
-    const m=new THREE.Group();m.add(mF);m.add(mW);m.add(mC);m.add(mOut);m.add(mU);m.add(mS);m.add(mEW);m.add(mEM);m.add(mES);
+    mU.rotation.x=-Math.PI/2;mU.position.y=-2.05;mU.renderOrder=-1;mU.visible=false;
+    const mPatch=mkFloorPatch();mPatch.receiveShadow=true;mPatch.castShadow=false;
+
+    /* filhos 0..8 preservados: o botão e probes antigos continuam válidos.
+       9=piso local | 10=contenção | 11..13=laterais caixa | 14=rodapé */
+    const m=new THREE.Group();
+    m.add(mF);m.add(mW);m.add(mC);m.add(mOut);m.add(mU);m.add(mS);m.add(mEW);m.add(mEM);m.add(mES);
+    m.add(mPatch);m.add(mR);m.add(mSW2);m.add(mSW3);m.add(mSW4);m.add(mLow);
     sceneAddReal(m);
     REAL.floor.visible=false; // piso antigo fora: senao ele atravessa a malha por dentro
+    /* Objetos 3D do cenário que a malha NÃO contém: barris (4/5), paletes (6),
+       carro do Long (7) e portas de madeira (9..12). Caixas/lids/velhos
+       blocos (0..3,8) ficam fora: a malha real + laterais novas os substituem. */
     for(const o of REAL.extras)o.visible=(o===REAL.ground);
-    REAL.ground.position.y=-2.2; // desce o plano escuro: nao corta areas rebaixadas da malha
+    for(const i of [4,5,6,7,9,10,11,12])if(REAL.extras[i])REAL.extras[i].visible=true;
+    REAL.ground.position.y=-2.2;
+    REAL.ground.material.color.setHex(0x342a20); // vazio marrom-escuro, não buraco preto
     REAL.mesh=m;REAL.ceil=mC;REAL.shell=mOut;
+    REAL.applyWallsVisual=()=>{
+      const w=REAL.walls!==false;
+      mW.visible=w;mC.visible=w;mS.visible=w;mLow.visible=!w;
+    };
     /* VISÃO LIMPA (padrão do dono): paredes/tetos NÃO são desenhados — só
-       chão + elementos. A simulação não muda (visão/tiro usam a grade). */
+       chão + elementos + laterais/rodapé. A simulação não muda. */
     try{REAL.walls=localStorage.getItem('callout.walls')==='1';}catch(e){REAL.walls=false;}
-    if(!REAL.walls){mW.visible=false;mC.visible=false;mS.visible=false;}
+    REAL.applyWallsVisual();
   }catch(e){try{console.warn('geo: falhou',e&&e.message||e);}catch(_){}}
 })();
 function updateDoorMeshes(dt){ /* portas estáticas, como no jogo */ return;
@@ -7144,7 +7301,7 @@ if(REAL.walls===undefined){try{REAL.walls=localStorage.getItem('callout.walls')=
 const wLab=()=>{$('bWalls').textContent='Paredes: '+(REAL.walls===false?'off':'on');};wLab();
 $('bWalls').onclick=()=>{SFX.click();REAL.walls=REAL.walls===false;
   try{localStorage.setItem('callout.walls',REAL.walls?'1':'0');}catch(e){}
-  if(REAL.mesh){for(const k of [1,2,5])REAL.mesh.children[k].visible=REAL.walls;}
+  if(REAL.mesh){if(REAL.applyWallsVisual)REAL.applyWallsVisual();else for(const k of [1,2,5])REAL.mesh.children[k].visible=REAL.walls;}
   wLab();};
 let fpsN=0,fpsT=0,fpsChecks=0;
 $('fSnd').onchange=async e=>{const n=await SFX.loadFiles([...e.target.files]);$('sndInfo').textContent=n?n+' sons carregados':'nenhum arquivo reconhecido';};
