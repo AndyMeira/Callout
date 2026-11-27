@@ -5658,7 +5658,10 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
       g.setAttribute('position',new THREE.Float32BufferAttribute(vp,3));
       g.setAttribute('uv',new THREE.Float32BufferAttribute(vu,2));
       g.setIndex(vi);g.computeVertexNormals();
-      return new THREE.Mesh(g,mF.material);
+      /* o piso local não tem o atributo de cor das faces da malha; usa o
+         MESMO material/textura, mas sem vertexColors (senão vira preto). */
+      const mp=mF.material.clone();mp.vertexColors=false;
+      return new THREE.Mesh(g,mp);
     };
     const mF=new THREE.Mesh(gF,new THREE.MeshStandardMaterial(Object.assign({vertexColors:true,roughness:.92,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip},tex?{map:tex}:{})));
     const mW=new THREE.Mesh(gW,new THREE.MeshStandardMaterial({vertexColors:true,roughness:.96,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip,map:wallTex,transparent:true}));
