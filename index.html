@@ -5496,10 +5496,29 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
       }catch(e){await new Promise(r2=>setTimeout(r2,400));}
     }
     const mF=new THREE.Mesh(gF,new THREE.MeshStandardMaterial(Object.assign({vertexColors:true,roughness:.92,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip},tex?{map:tex}:{})));
-    const mW=new THREE.Mesh(gW,new THREE.MeshStandardMaterial({vertexColors:true,roughness:.96,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip,map:wallTex}));
+    const mW=new THREE.Mesh(gW,new THREE.MeshStandardMaterial({vertexColors:true,roughness:.96,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip,map:wallTex,transparent:true}));
     const mC=new THREE.Mesh(gC,new THREE.MeshStandardMaterial({vertexColors:true,roughness:.96,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip,map:wallTex,transparent:true,opacity:1}));
     mF.receiveShadow=mW.receiveShadow=mC.receiveShadow=true;mF.castShadow=mW.castShadow=mC.castShadow=false; // sem auto-sombreamento (manchas pretas)
     mC.renderOrder=2; // teto desenha depois (fica atrás quando translúcido)
+    /* FURO DE VISÃO (câmera→foco): a parede/teto que estiver NA LINHA entre a
+       câmera e o ponto de combate fica translúcida — o combate nunca some
+       atrás de parede, e o resto do mapa continua sólido. Feito no shader
+       (distância do fragmento ao segmento câmera→foco): zero raycast por
+       quadro, custo desprezível no celular. */
+    const visU={a:{value:new THREE.Vector3(0,140,0)},b:{value:new THREE.Vector3(0,0,0)},r:{value:7},s:{value:2.2}};
+    const visFade=(mat)=>{
+      mat.onBeforeCompile=(sh)=>{
+        sh.uniforms.uVA=visU.a;sh.uniforms.uVB=visU.b;sh.uniforms.uVR=visU.r;sh.uniforms.uVS=visU.s;
+        sh.vertexShader=sh.vertexShader
+          .replace('#include <common>','#include <common>\nvarying vec3 vWP;')
+          .replace('#include <begin_vertex>','#include <begin_vertex>\nvWP=(modelMatrix*vec4(transformed,1.0)).xyz;');
+        sh.fragmentShader=sh.fragmentShader
+          .replace('#include <common>','#include <common>\nvarying vec3 vWP;\nuniform vec3 uVA;uniform vec3 uVB;uniform float uVR;uniform float uVS;\nfloat segDist(vec3 p,vec3 a,vec3 b){vec3 ab=b-a;float t=clamp(dot(p-a,ab)/max(dot(ab,ab),1e-4),0.0,1.0);return length(p-(a+t*ab));}')
+          .replace('#include <dithering_fragment>','#include <dithering_fragment>\nfloat _vf=smoothstep(uVS,uVR,segDist(vWP,uVA,uVB));gl_FragColor.a*=_vf;');
+      };
+      mat.needsUpdate=true;
+    };
+    visFade(mW.material);visFade(mC.material);REAL.visU=visU;
     /* casca externa: existe no grupo mas fica INVISÍVEL (a câmera orbita de
        fora; paredões da borda só ocluem). REAL.shell permite religar fácil. */
     const mOut=new THREE.Mesh(gO,new THREE.MeshStandardMaterial({vertexColors:true,roughness:.96,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip,map:wallTex}));
@@ -6072,6 +6091,13 @@ function updateCamera(dt){
   }else kcamUI(0,null);
   camera.position.set(px,py,pz);
   camera.lookAt(lx,ly,lz);
+  /* alimenta o furo de visão: segmento câmera→foco (raio cresce com o zoom
+     out da câmera, para abrir a janela certa em qualquer aproximação) */
+  if(REAL.visU){
+    REAL.visU.a.value.set(px,py,pz);REAL.visU.b.value.set(lx,ly,lz);
+    const vr=Math.max(4,Math.min(12,d*0.06));
+    REAL.visU.r.value=vr;REAL.visU.s.value=vr*0.32;
+  }
   /* TETO FANTASMA: combate em lugar coberto → as lajes/tetos ficam
      translúcidos (o mapa fica INTEIRO, nada é cortado) e a briga aparece
      por dentro; no aberto voltam a ser sólidas. Teste O(1) por célula. */
