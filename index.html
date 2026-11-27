@@ -5309,7 +5309,7 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
        reais de cada área), mas estampada em parede vira listra vertical e o
        mundo parece "um mapa colado por cima do outro". Então: piso = radar;
        parede/teto = pedra/reboco com sombreamento próprio. */
-    const iF=[],iW=[],iC=[],iO=[];
+    const iF=[],iW=[],iC=[],iO=[],iS=[];
     /* distância (em células) até a área jogável — pra separar a "CASCA"
        externa do mapa: a câmera orbita DE FORA, então os paredões da borda
        ficam entre ela e a ação e só ocluem. Casca = >4 células de qualquer
@@ -5356,7 +5356,7 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
           const spread=Math.max(...vy)-Math.min(...vy);
           const dh=cy3-hAtGround(cx3,cz3);
           if(spread<0.6&&dh>10.5)iC.push(a,b,c); // telhado plano muito alto (torres da A): fantasma
-          else iF.push(a,b,c); // chao andavel (liga spawn ate A, rampa): SOLTO
+          else iS.push(a,b,c); // laje/patamar plano alto: só aparece com "Paredes: on"
         }
         else iW.push(a,b,c);
       } else {
@@ -5375,17 +5375,18 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
     gAll.setIndex(new THREE.BufferAttribute(new Uint32Array(fc),1));
     gAll.computeVertexNormals();
     const nAll=gAll.attributes.normal.array;
-    const gF=new THREE.BufferGeometry(),gW=new THREE.BufferGeometry(),gC=new THREE.BufferGeometry(),gO=new THREE.BufferGeometry();
+    const gF=new THREE.BufferGeometry(),gW=new THREE.BufferGeometry(),gC=new THREE.BufferGeometry(),gO=new THREE.BufferGeometry(),gS=new THREE.BufferGeometry();
     const uvRadar=new THREE.BufferAttribute(uvs,2),uvWall=new THREE.BufferAttribute(uvw,2);
-    for(const gg of [gF,gW,gC,gO])gg.setAttribute('position',new THREE.BufferAttribute(pos,3));
-    gF.setAttribute('uv',uvRadar);gW.setAttribute('uv',uvWall);gC.setAttribute('uv',uvWall);gO.setAttribute('uv',uvWall);
-    gF.setIndex(iF);gW.setIndex(iW);gC.setIndex(iC);gO.setIndex(iO);
-    gF.computeVertexNormals();gW.computeVertexNormals();gC.computeVertexNormals();gO.computeVertexNormals();
+    for(const gg of [gF,gW,gC,gO,gS])gg.setAttribute('position',new THREE.BufferAttribute(pos,3));
+    gF.setAttribute('uv',uvRadar);gW.setAttribute('uv',uvWall);gC.setAttribute('uv',uvWall);gO.setAttribute('uv',uvWall);gS.setAttribute('uv',uvRadar);
+    gF.setIndex(iF);gW.setIndex(iW);gC.setIndex(iC);gO.setIndex(iO);gS.setIndex(iS);
+    gF.computeVertexNormals();gW.computeVertexNormals();gC.computeVertexNormals();gO.computeVertexNormals();gS.computeVertexNormals();
     /* piso: cor quase neutra (a cor vem do radar) com leve variação */
     {
       const cF=new Float32Array(nV*3);
       for(let i=0;i<nV;i++){const j=.94+.06*Math.abs(Math.sin(i*12.9898));cF[i*3]=j;cF[i*3+1]=j;cF[i*3+2]=j;}
       gF.setAttribute('color',new THREE.BufferAttribute(cF,3));
+      gS.setAttribute('color',new THREE.BufferAttribute(cF,3));
     }
     /* parede/teto: sombreamento por vértice — a COR vem da textura de arenito;
        isto controla gradiente de altura, tetos escuros e o RODAPÉ (sombra de
@@ -5498,6 +5499,11 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
     }
     const mF=new THREE.Mesh(gF,new THREE.MeshStandardMaterial(Object.assign({vertexColors:true,roughness:.92,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip},tex?{map:tex}:{})));
     const mW=new THREE.Mesh(gW,new THREE.MeshStandardMaterial({vertexColors:true,roughness:.96,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip,map:wallTex,transparent:true}));
+    /* lajes/patamares planos altos (telhados): com "Paredes: on" aparecem como
+       piso (comportamento antigo); na visão limpa ficam escondidos e o piso de
+       baixo aparece pelo "tapa-buraco" com o desenho do radar. */
+    const mS=new THREE.Mesh(gS,mF.material);
+    mS.receiveShadow=true;mS.castShadow=false;
     const mC=new THREE.Mesh(gC,new THREE.MeshStandardMaterial({vertexColors:true,roughness:.96,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip,map:wallTex,transparent:true,opacity:1}));
     mF.receiveShadow=mW.receiveShadow=mC.receiveShadow=true;mF.castShadow=mW.castShadow=mC.castShadow=false; // sem auto-sombreamento (manchas pretas)
     mC.renderOrder=2; // teto desenha depois (fica atrás quando translúcido)
@@ -5524,14 +5530,15 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
        fora; paredões da borda só ocluem). REAL.shell permite religar fácil. */
     const mOut=new THREE.Mesh(gO,new THREE.MeshStandardMaterial({vertexColors:true,roughness:.96,metalness:0,side:THREE.DoubleSide,clippingPlanes:clip,map:wallTex}));
     mOut.visible=false;mOut.castShadow=mOut.receiveShadow=false;
-    /* TAPA-BURACO do chão: onde não existe face de piso (dentro/embaixo das
-       paredes) aparecia o plano escuro do mundo — com as paredes escondidas
-       isso virava "paredes pretas". Um plano com o MESMO desenho do radar,
-       logo abaixo do piso mais baixo, preenche esses vãos. */
+    /* TAPA-BURACO do chão: onde não existe face de piso (a pegada das paredes,
+       ou sob lajes escondidas) aparecia o plano escuro do mundo. Um plano com
+       o MESMO desenho do radar, logo abaixo do piso mais baixo, preenche esses
+       vãos. Plano RETO (não segue a altura): é ele que cobre também a borda do
+       mapa na tela; um piso que subisse nas beiradas deixava o vazio aparecer. */
     const mU=new THREE.Mesh(new THREE.PlaneGeometry(153.6,153.6),
       tex?new THREE.MeshBasicMaterial({map:tex}):new THREE.MeshBasicMaterial({color:0x6d5943}));
     mU.rotation.x=-Math.PI/2;mU.position.y=-2.05;mU.renderOrder=-1;
-    const m=new THREE.Group();m.add(mF);m.add(mW);m.add(mC);m.add(mOut);m.add(mU);
+    const m=new THREE.Group();m.add(mF);m.add(mW);m.add(mC);m.add(mOut);m.add(mU);m.add(mS);
     sceneAddReal(m);
     REAL.floor.visible=false; // piso antigo fora: senao ele atravessa a malha por dentro
     for(const o of REAL.extras)o.visible=(o===REAL.ground);
@@ -5540,7 +5547,7 @@ scene.add=sceneAddReal; // fim da captura estática: daqui pra frente é dinâmi
     /* VISÃO LIMPA (padrão do dono): paredes/tetos NÃO são desenhados — só
        chão + elementos. A simulação não muda (visão/tiro usam a grade). */
     try{REAL.walls=localStorage.getItem('callout.walls')==='1';}catch(e){REAL.walls=false;}
-    if(!REAL.walls){mW.visible=false;mC.visible=false;}
+    if(!REAL.walls){mW.visible=false;mC.visible=false;mS.visible=false;}
   }catch(e){try{console.warn('geo: falhou',e&&e.message||e);}catch(_){}}
 })();
 function updateDoorMeshes(dt){ /* portas estáticas, como no jogo */ return;
@@ -7053,7 +7060,7 @@ if(REAL.walls===undefined){try{REAL.walls=localStorage.getItem('callout.walls')=
 const wLab=()=>{$('bWalls').textContent='Paredes: '+(REAL.walls===false?'off':'on');};wLab();
 $('bWalls').onclick=()=>{SFX.click();REAL.walls=REAL.walls===false;
   try{localStorage.setItem('callout.walls',REAL.walls?'1':'0');}catch(e){}
-  if(REAL.mesh){REAL.mesh.children[1].visible=REAL.walls;REAL.mesh.children[2].visible=REAL.walls;}
+  if(REAL.mesh){for(const k of [1,2,5])REAL.mesh.children[k].visible=REAL.walls;}
   wLab();};
 let fpsN=0,fpsT=0,fpsChecks=0;
 $('fSnd').onchange=async e=>{const n=await SFX.loadFiles([...e.target.files]);$('sndInfo').textContent=n?n+' sons carregados':'nenhum arquivo reconhecido';};
